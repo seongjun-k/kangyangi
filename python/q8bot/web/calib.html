@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kangyangi Calibration</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0f0f11; color: #eee; margin: 0; padding: 16px; max-width: 640px;
+  }
+  h1 { font-size: 1.1em; margin: 0 0 4px; }
+  a { color: #7fd0ff; }
+  .warn {
+    background: #3a1f1f; border: 1px solid #6a3030; border-radius: 6px;
+    padding: 10px 14px; margin: 12px 0; font-size: 0.9em; line-height: 1.5; color: #ffb3b3;
+  }
+  .row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid #262629; }
+  .joints { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin: 10px 0; }
+  .joints button {
+    padding: 10px 4px; font-size: 0.85em;
+  }
+  button {
+    background: #2a2a30; color: #eee; border: 1px solid #3a3a40; border-radius: 6px;
+    padding: 8px 14px; cursor: pointer; font-size: 0.9em;
+  }
+  button:hover { background: #35353c; }
+  button.active { background: #2d6a4f; border-color: #40916c; }
+  button.danger { border-color: #6a3030; }
+  #tick { font-size: 2em; text-align: center; margin: 12px 0; font-variant-numeric: tabular-nums; }
+  .nudge { display: flex; gap: 8px; justify-content: center; margin-bottom: 12px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+</style>
+</head>
+<body>
+<h1>Kangyangi 관절 캘리브레이션</h1>
+<div class="warn">
+  <b>경고</b>: 반드시 로봇을 들어올려 다리가 바닥/사물에 닿지 않는 상태에서 진행할 것.
+  "진입"을 누르면 보행 명령이 억제되고 이 페이지가 관절을 직접 제어한다.
+  각 관절을 기준 자세(다리가 수직/중립 위치)로 맞춘 뒤 "저장"을 눌러 전체 오프셋을 기록한다.
+</div>
+<div class="row"><span>상태</span><span id="stMode">-</span></div>
+<div class="row"><span>저장된 오프셋</span><span id="stSaved">-</span></div>
+
+<div class="actions">
+  <button id="btnEnter">진입</button>
+  <button id="btnExit">이탈</button>
+</div>
+
+<h2 style="font-size:0.95em;color:#999;font-weight:500;margin-top:16px;">관절 선택 (ID 11-18)</h2>
+<div class="joints" id="jointGrid"></div>
+
+<div id="tick">-</div>
+<div class="nudge">
+  <button data-d="-100">-100</button>
+  <button data-d="-10">-10</button>
+  <button data-d="-1">-1</button>
+  <button data-d="1">+1</button>
+  <button data-d="10">+10</button>
+  <button data-d="100">+100</button>
+</div>
+
+<div class="actions">
+  <button id="btnSave" class="danger">이 관절 기록 (전체 저장)</button>
+  <a href="/">&larr; 조작 화면으로</a>
+</div>
+
+<script>
+// 관절 순서는 protocol.md와 동일(ID 11-18): FL-hip, FL-knee, FR-hip, FR-knee, BL-hip, BL-knee, BR-hip, BR-knee
+const JOINT_LABELS = ['FL-hip(11)', 'FL-knee(12)', 'FR-hip(13)', 'FR-knee(14)',
+                       'BL-hip(15)', 'BL-knee(16)', 'BR-hip(17)', 'BR-knee(18)'];
+let selected = 0;
+let ticks = new Array(8).fill(4096);
+let active = false;
+
+const grid = document.getElementById('jointGrid');
+JOINT_LABELS.forEach((label, i) => {
+  const b = document.createElement('button');
+  b.textContent = label;
+  b.onclick = () => { selected = i; render(); };
+  grid.appendChild(b);
+});
+
+function render() {
+  Array.from(grid.children).forEach((b, i) => b.classList.toggle('active', i === selected));
+  document.getElementById('tick').textContent = ticks[selected];
+  document.getElementById('stMode').textContent = active ? '캘리브레이션 모드' : '일반 모드';
+}
+
+async function poll() {
+  try {
+    const r = await fetch('/calib/state');
+    const d = await r.json();
+    active = d.active;
+    ticks = d.ticks;
+    document.getElementById('stSaved').textContent = d.saved_offsets ? d.saved_offsets.join(', ') : '(없음, 기본 4096)';
+    render();
+  } catch (e) {}
+}
+setInterval(poll, 500);
+poll();
+
+document.getElementById('btnEnter').onclick = () => fetch('/calib', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ action: 'enter' }),
+}).then(poll);
+
+document.getElementById('btnExit').onclick = () => fetch('/calib', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ action: 'exit' }),
+}).then(poll);
+
+document.getElementById('btnSave').onclick = () => fetch('/calib/save', {
+  method: 'POST', headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({}),
+}).then(poll);
+
+function nudge(delta) {
+  if (!active) return;
+  fetch('/calib/nudge', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ joint: selected, delta }),
+  }).then(poll);
+}
+document.querySelectorAll('.nudge button').forEach(b => {
+  b.onclick = () => nudge(parseInt(b.dataset.d, 10));
+});
+
+// 키보드 화살표: 위/오른쪽 = +1, 아래/왼쪽 = -1 (선택된 관절에만 적용)
+window.addEventListener('keydown', e => {
+  if (!active) return;
+  if (e.key === 'ArrowUp' || e.key === 'ArrowRight') { e.preventDefault(); nudge(1); }
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') { e.preventDefault(); nudge(-1); }
+});
+</script>
+</body>
+</html>

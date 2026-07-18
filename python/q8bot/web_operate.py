@@ -332,6 +332,66 @@ def run_greet(q8, leg, pos_ref, suppress, dur=1000):
     threading.Thread(target=_run, daemon=True).start()
 
 
+class CalibState:
+    '''캘리브레이션 모드 상태(락 보호). active 동안 calib_send_loop가 calib_ticks를
+    계속 송신한다(500ms 안전정지 워치독 keepalive 겸용 — 모션 패킷 재수신이 곧 torque 유지 조건).'''
+
+    def __init__(self, q8):
+        self._lock = threading.Lock()
+        self._q8 = q8
+        self.active = False
+        self.ticks = list(q8.zero_offsets)
+
+    def enter(self):
+        with self._lock:
+            self.active = True
+            self.ticks = list(self._q8.zero_offsets)
+
+    def exit(self):
+        with self._lock:
+            self.active = False
+
+    def nudge(self, joint, delta):
+        with self._lock:
+            if not self.active or not (0 <= joint < 8):
+                return None
+            self.ticks[joint] = max(0, min(8191, self.ticks[joint] + delta))
+            return self.ticks[joint]
+
+    def snapshot(self):
+        with self._lock:
+            return self.active, list(self.ticks)
+
+
+def calib_send_loop(calib_state, q8, stop_event):
+    '''캘리브레이션 모드 중 calib_ticks를 2~5Hz로 계속 송신하는 스레드.
+    모션 패킷 송신 자체가 펌웨어 500ms 무수신 워치독을 만족시키므로 keepalive를 겸한다.'''
+    interval = 1.0 / 3  # 3Hz -> 500ms 워치독보다 충분히 촘촘
+    while not stop_event.is_set():
+        active, ticks = calib_state.snapshot()
+        if active:
+            q8.send_raw_ticks(ticks)
+        time.sleep(interval)
+
+
+def load_saved_offsets():
+    from udp_link import CALIBRATION_FILE
+    if CALIBRATION_FILE.exists():
+        try:
+            data = json.loads(CALIBRATION_FILE.read_text())
+            offsets = data.get("zero_offsets")
+            if isinstance(offsets, list) and len(offsets) == 8:
+                return offsets
+        except (json.JSONDecodeError, OSError):
+            pass
+    return None
+
+
+def save_calibration(ticks):
+    from udp_link import CALIBRATION_FILE
+    CALIBRATION_FILE.write_text(json.dumps({"zero_offsets": ticks}))
+
+
 class RobotState:
     '''SSE 상태 push용 공유 상태(제어 스레드가 갱신, HTTP 스레드가 읽음).'''
 
@@ -474,7 +534,8 @@ def status_stream_body(robot_state):
         yield f"data: {data}\n\n".encode()
 
 
-def make_handler(key_state, robot_state, q8, leg, pos_ref, robot_ip, voice_state, voice_override, suppress):
+def make_handler(key_state, robot_state, q8, leg, pos_ref, robot_ip, voice_state, voice_override, suppress,
+                  calib_state):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
             pass  # 표준 stderr 접근 로그 억제(콘솔 소음 방지)
@@ -497,6 +558,16 @@ def make_handler(key_state, robot_state, q8, leg, pos_ref, robot_ip, voice_state
                 self.wfile.write(index)
             elif self.path == "/config":
                 self._send_json({"robot_ip": robot_ip})
+            elif self.path in ("/calib", "/calib.html"):
+                page = (WEB_DIR / "calib.html").read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(page)))
+                self.end_headers()
+                self.wfile.write(page)
+            elif self.path == "/calib/state":
+                active, ticks = calib_state.snapshot()
+                self._send_json({"active": active, "ticks": ticks, "saved_offsets": load_saved_offsets()})
             elif self.path == "/voice/status":
                 self._send_json(voice_state.snapshot())
             elif self.path == "/status":
@@ -523,7 +594,37 @@ def make_handler(key_state, robot_state, q8, leg, pos_ref, robot_ip, voice_state
                 self._send_json({"error": "bad json"}, 400)
                 return
 
-            if self.path == "/keys":
+            if self.path == "/calib":
+                action = payload.get("action")
+                if action == "enter":
+                    suppress.set()  # gait 프레임 송신 억제(jump/greet와 동일 메커니즘 재사용)
+                    calib_state.enter()
+                elif action == "exit":
+                    calib_state.exit()
+                    suppress.clear()
+                else:
+                    self._send_json({"error": "unknown action"}, 400)
+                    return
+                self._send_json({"ok": True})
+            elif self.path == "/calib/nudge":
+                joint = payload.get("joint")
+                delta = payload.get("delta")
+                if not isinstance(joint, int) or not isinstance(delta, int):
+                    self._send_json({"error": "bad joint/delta"}, 400)
+                    return
+                new_tick = calib_state.nudge(joint, delta)
+                if new_tick is None:
+                    self._send_json({"error": "not in calib mode or bad joint"}, 400)
+                    return
+                self._send_json({"ok": True, "tick": new_tick})
+            elif self.path == "/calib/save":
+                active, ticks = calib_state.snapshot()
+                if not active:
+                    self._send_json({"error": "not in calib mode"}, 400)
+                    return
+                save_calibration(ticks)
+                self._send_json({"ok": True, "zero_offsets": ticks})
+            elif self.path == "/keys":
                 keys = payload.get("keys", [])
                 axes = payload.get("axes")  # 하위호환: 게임패드 미연결 시 없음
                 buttons = payload.get("buttons", [])
@@ -610,6 +711,7 @@ def main():
     voice_state = VoiceState()
     voice_override = VoiceOverride()
     suppress = ControlSuppress()
+    calib_state = CalibState(q8)
     robot_state = RobotState(q8, gait_manager, voice_state)
     stop_event = threading.Event()
 
@@ -623,7 +725,11 @@ def main():
     )
     ctrl_thread.start()
 
-    handler = make_handler(key_state, robot_state, q8, leg, pos_ref, q8.ip, voice_state, voice_override, suppress)
+    calib_thread = threading.Thread(target=calib_send_loop, args=(calib_state, q8, stop_event), daemon=True)
+    calib_thread.start()
+
+    handler = make_handler(key_state, robot_state, q8, leg, pos_ref, q8.ip, voice_state, voice_override, suppress,
+                            calib_state)
     server = ThreadingHTTPServer(("0.0.0.0", args.port), handler)
     log.info(f"Web UI: http://0.0.0.0:{args.port}/  (robot={q8.ip}:{q8.port})")
 
