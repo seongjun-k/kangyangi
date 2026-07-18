@@ -147,6 +147,11 @@ void processDxlQueue() {
   if (xQueueReceive(dxlQueue, &dxlCmd, 0) != pdTRUE) return;
 
   // 안전 정지로 torque off된 상태에서 유효 명령 수신 시 재활성화 후 적용
+  // (단, 명령 자체가 torque off면 재활성화 펄스 없이 tripped 해제만)
+  if (torqueSafetyTripped && dxlCmd.type == DXL_CMD_CONTROL && dxlCmd.ctrlCmd == 0) {
+    torqueSafetyTripped = false;  // 이미 torque off 상태 -> 명령 결과와 동일
+    return;
+  }
   if (torqueSafetyTripped) {
     q8.enableTorque();
     torqueSafetyTripped = false;
@@ -217,7 +222,8 @@ void handleCameraClient() {
   client.println();
 
   while (client.connected()) {
-    checkSafety();  // 스트리밍 중에도 안전 정지 감시 유지
+    checkSafety();      // 스트리밍 중에도 안전 정지 감시 유지
+    processDxlQueue();  // 스트리밍 루프가 loop()를 점유하므로 여기서도 모션 큐 소비(미소비 시 로봇 고정)
 
     camera_fb_t* fb = esp_camera_fb_get();
     if (!fb) break;
