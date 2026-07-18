@@ -142,29 +142,6 @@ void q8Dynamixel::bulkWrite(int32_t values[8]){
   _dxl.bulkWrite(&_bw_infos);
 }
 
-uint16_t* q8Dynamixel::syncRead(){
-  // Read relevant registers from all joints into a single array
-  int recv_cnt;
-  size_t offset = 0;
-  uint16_t* byteArray = new uint16_t[_idCount * 2];
-
-  recv_cnt = _dxl.fastSyncRead(&_sr_infos);
-  if(recv_cnt = _idCount){
-    for (size_t i = 0; i < _idCount; i++){
-      // cast to uint16_t since values never exceed 65535 in robot configuration
-      byteArray[i*2] = static_cast<uint16_t>(_sr_data[i].present_current + 10000);
-      byteArray[i*2+1] = static_cast<uint16_t>(_sr_data[i].present_position);
-    }
-  } else {
-    // Fill ByteArray with zeros
-    for (size_t i = 0; i < _idCount*2; ++i){
-      byteArray[i] = 0;
-    }
-  }
-
-  return byteArray;
-}
-
 void q8Dynamixel::jump(){
   // Crouching Position
   setProfile(500);

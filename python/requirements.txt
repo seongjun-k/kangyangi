@@ -9,3 +9,6 @@ scipy>=1.11.4
 
 # 음성인식(푸시투토크, voice.py) — 한국어 오프라인 STT
 vosk>=0.3.45
+
+# 시뮬레이터(python/sim/viz.py) 실시간 애니메이션용
+matplotlib>=3.8.0

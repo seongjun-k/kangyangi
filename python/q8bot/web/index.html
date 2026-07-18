@@ -146,7 +146,7 @@ function voiceStop() {
     body: JSON.stringify({ action: 'stop' }),
   }).then(r => r.json()).then(d => {
     document.getElementById('voiceText').textContent = d.text || '(무음)';
-    document.getElementById('voiceCmd').textContent = d.command || (d.text ? '무시됨' : '-');
+    document.getElementById('voiceCmd').textContent = d.command || (d.ignore_reason === 'negation' ? '무시됨(부정어)' : d.text ? '무시됨' : '-');
   }).catch(() => {});
 }
 
@@ -170,7 +170,7 @@ window.addEventListener('keyup', e => {
   if (k === 'v') { voiceStop(); return; }
   if (pressed.delete(k)) sendKeys();
 });
-window.addEventListener('blur', () => { pressed.clear(); sendKeys(); });
+window.addEventListener('blur', () => { pressed.clear(); sendKeys(); if (voiceActive) voiceStop(); });
 setInterval(sendKeys, 200);
 
 // 상태 SSE
@@ -188,7 +188,7 @@ es.onmessage = ev => {
     : s.voice_mic_connected ? '연결됨' : '-';
   if (!voiceActive) {
     document.getElementById('voiceText').textContent = s.voice_text || '-';
-    document.getElementById('voiceCmd').textContent = s.voice_command || (s.voice_text ? '무시됨' : '-');
+    document.getElementById('voiceCmd').textContent = s.voice_command || (s.voice_ignore_reason === 'negation' ? '무시됨(부정어)' : s.voice_text ? '무시됨' : '-');
   }
 };
 

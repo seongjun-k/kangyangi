@@ -28,7 +28,6 @@ class q8Dynamixel
     void setGain(uint16_t p_gain);
     void moveSingle(int32_t val);
     void bulkWrite(int32_t values[8]);
-    uint16_t* syncRead();
     void jump();
     uint8_t parseData(const char* myData);
 

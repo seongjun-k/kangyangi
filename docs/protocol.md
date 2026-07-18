@@ -29,5 +29,5 @@
 
 ## 구현 위치 (변경 시 함께 수정)
 
-- 펌웨어 수신부: firmware/kangyangi/src/main.cpp:60 (모션 패킷 처리), :76 (커맨드 패킷 처리), :89 (길이/체크섬 검증), :107 (500ms 안전 정지)
-- 파이썬 송신부: python/q8bot/udp_link.py — 모션 패킷 `q8_udp.move_all()`(L83-96), 커맨드 패킷 `q8_udp._send_cmd()`(L58-64)
+- 펌웨어 수신부: firmware/kangyangi/src/main.cpp:107 (모션 패킷 처리), :124 (커맨드 패킷 처리), :135 (길이/체크섬 검증), :153 (500ms 안전 정지)
+- 파이썬 송신부: python/q8bot/udp_link.py — 모션 패킷 `q8_udp.move_all()`(L87-), 커맨드 패킷 `q8_udp._send_cmd()`(L56-)

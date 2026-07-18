@@ -7,6 +7,8 @@ recognize()가 빈 문자열을 반환하는 형태로만 드러난다.
 '''
 
 import json
+import sys
+import tempfile
 import threading
 import urllib.request
 import zipfile
@@ -32,15 +34,20 @@ def available():
 
 
 def _ensure_model():
-    '''모델 디렉터리가 없으면 최초 1회 다운로드+압축 해제.'''
+    '''모델 디렉터리가 없으면 최초 1회 다운로드+압축 해제.
+    임시 디렉터리에 풀고 완료 후 최종 경로로 rename(원자적) — 다운로드 중단 시
+    불완전한 MODEL_DIR이 남아 "이미 있음"으로 오판되는 것을 방지.'''
     if MODEL_DIR.exists():
         return True
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
     zip_path = MODELS_DIR / "vosk-model-small-ko-0.22.zip"
     try:
         urllib.request.urlretrieve(MODEL_URL, zip_path)
-        with zipfile.ZipFile(zip_path) as zf:
-            zf.extractall(MODELS_DIR)
+        with tempfile.TemporaryDirectory(dir=MODELS_DIR) as tmp_dir:
+            with zipfile.ZipFile(zip_path) as zf:
+                zf.extractall(tmp_dir)
+            extracted = Path(tmp_dir) / MODEL_DIR.name
+            extracted.rename(MODEL_DIR)
     finally:
         if zip_path.exists():
             zip_path.unlink()
@@ -57,6 +64,19 @@ def _get_recognizer():
     return vosk.KaldiRecognizer(_model, SAMPLE_RATE)
 
 
+def preload_model_async():
+    '''서버 기동 시 백그라운드 스레드로 모델을 미리 로드해 첫 PTT 블로킹을 없앤다.'''
+    if not _VOSK_AVAILABLE:
+        return
+    def _run():
+        try:
+            with _model_lock:
+                _get_recognizer()
+        except Exception as e:
+            print(f"[voice] 모델 선로딩 실패: {e}", file=sys.stderr)
+    threading.Thread(target=_run, daemon=True).start()
+
+
 def recognize(pcm_bytes):
     '''PCM bytes(16kHz s16le mono) -> 인식 텍스트. 미설치/모델없음/오류 시 빈 문자열.'''
     if not _VOSK_AVAILABLE or not pcm_bytes:
@@ -67,5 +87,6 @@ def recognize(pcm_bytes):
             rec.AcceptWaveform(bytes(pcm_bytes))
             result = json.loads(rec.FinalResult())
         return result.get("text", "")
-    except Exception:
+    except Exception as e:
+        print(f"[voice] 인식 실패: {e}", file=sys.stderr)
         return ""

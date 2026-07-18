@@ -5,8 +5,6 @@ Control mappings configuration for Q8bot.
 Defines keyboard and joystick control schemes using a two-layer mapping system.
 '''
 
-from helpers import Q8Logger
-
 # 키보드 매핑은 pygame GUI(operate.py) 삭제와 함께 제거됨.
 # 웹 UI의 문자열 키 매핑은 web_operate.py WEB_KEY_MAPPING 참조(동일 의미 유지).
 
@@ -103,100 +101,6 @@ JOYSTICK_MOVEMENT = {
 # =============================================================================
 # JOYSTICK HELPER FUNCTIONS
 # =============================================================================
-
-def check_joystick_compatible(joystick):
-    """
-    Check if the connected joystick is compatible.
-    Returns True if joystick is recognized OR meets minimum requirements.
-
-    Args:
-        joystick: pygame.joystick.Joystick object
-
-    Returns:
-        bool: True if joystick is compatible, False otherwise
-    """
-    if joystick is None or JOYSTICK_CONFIG is None:
-        return False
-
-    joystick_name = joystick.get_name()
-    num_axes = joystick.get_numaxes()
-    num_buttons = joystick.get_numbuttons()
-
-    # Check if joystick is in our recognized list
-    if joystick_name in JOYSTICK_CONFIG['controllers']:
-        Q8Logger.debug(f"Recognized joystick: '{joystick_name}'")
-        return True
-
-    # Fall back to minimum requirements check
-    required_axes = JOYSTICK_CONFIG['requirements']['min_axes']
-    required_buttons = JOYSTICK_CONFIG['requirements']['min_buttons']
-
-    if num_axes < required_axes or num_buttons < required_buttons:
-        Q8Logger.warning(f"Joystick '{joystick_name}' does not meet requirements.")
-        Q8Logger.warning(f"  Required: {required_axes} axes, {required_buttons} buttons")
-        Q8Logger.warning(f"  Found: {num_axes} axes, {num_buttons} buttons")
-        return False
-
-    Q8Logger.debug(f"Joystick '{joystick_name}' meets minimum requirements (generic mode)")
-    return True
-
-
-def get_joystick_mapping(joystick):
-    """
-    Get the button/axis mapping for a specific joystick using two-layer lookup.
-
-    Layer 1: Action → Physical Position (e.g., 'greet' → 'top')
-    Layer 2: Physical Position → Button Number (e.g., 'top' → 2 for Joycon, 0 for GPDWIN)
-
-    If joystick is not recognized but meets minimum requirements, falls back to GPDWIN mapping.
-
-    Args:
-        joystick: pygame.joystick.Joystick object
-
-    Returns:
-        dict: Joystick mapping with structure:
-            {
-                'name': str,
-                'axes': dict,
-                'buttons': dict,      # Physical position → button number
-                'actions': dict,      # Action → button number (resolved)
-                'recognized': bool
-            }
-        None if joystick not supported or config not loaded
-    """
-    if joystick is None or JOYSTICK_CONFIG is None:
-        return None
-
-    joystick_name = joystick.get_name()
-    controller_config = None
-    recognized = False
-
-    # Check if we have a config for this specific controller
-    if joystick_name in JOYSTICK_CONFIG['controllers']:
-        controller_config = JOYSTICK_CONFIG['controllers'][joystick_name]
-        recognized = True
-    else:
-        # Fall back to Generic Controller mapping for unrecognized controllers
-        if 'Generic Controller' in JOYSTICK_CONFIG['controllers']:
-            controller_config = JOYSTICK_CONFIG['controllers']['Generic Controller']
-            recognized = False  # Using generic fallback
-        else:
-            return None
-
-    # Build action-to-button mapping using two-layer lookup
-    action_buttons = {}
-    for action, position in JOYSTICK_CONFIG['action_mapping'].items():
-        if position in controller_config['buttons']:
-            action_buttons[action] = controller_config['buttons'][position]
-
-    return {
-        'name': joystick_name,
-        'axes': controller_config['axes'],
-        'buttons': controller_config['buttons'],  # Physical position mapping
-        'actions': action_buttons,                # Logical action mapping
-        'recognized': recognized
-    }
-
 
 def apply_deadzone(value, deadzone):
     """

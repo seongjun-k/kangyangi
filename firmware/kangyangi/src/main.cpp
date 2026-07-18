@@ -187,6 +187,9 @@ bool processDxlQueue() {
         // 것보다 단순하고, jump는 이미 loop 태스크를 독점하므로 다른 패킷도
         // 그 사이 처리되지 않기 때문에 이 갱신만으로 충분하다.)
         lastValidPacketMs = millis();
+        // jump() 진행 중(약 7.3초) 쌓인 motionQueue의 자세는 최대 7.3초 전 목표라
+        // 착지 직후 그대로 적용되면 위험 — 큐를 비워 다음 모션 패킷부터 반영되게 한다.
+        xQueueReset(motionQueue);
         break;
       default: break;
     }
@@ -290,7 +293,10 @@ static const int MIC_SAMPLE_RATE = 16000;
 static const int MIC_DMA_BUF_LEN = 512;
 
 bool micInit() {
-  I2S.setAllPins(MIC_CLK_PIN, -1, MIC_DATA_PIN, -1, MIC_DATA_PIN);
+  // PDM RX 모드에서는 클럭이 ws(fs) 슬롯으로 출력된다(번들 I2S 라이브러리
+  // _applyPinSetting 매핑) — Seeed 공식 예제와 동일하게 (bck, ws, data_out,
+  // data_in, mck) 인자 순서 중 ws 자리에 CLK, data_in 자리에 DATA를 넣는다.
+  I2S.setAllPins(-1, MIC_CLK_PIN, MIC_DATA_PIN, -1, -1);
   I2S.setBufferSize(MIC_DMA_BUF_LEN);
   return I2S.begin(PDM_MONO_MODE, MIC_SAMPLE_RATE, 16) == 1;
 }
@@ -365,7 +371,8 @@ void setup() {
   micReady = micInit();
   if (micReady) {
     micServer.begin();
-    xTaskCreatePinnedToCore(micTask, "mic", 4096, NULL, tskIDLE_PRIORITY + 1, NULL, 0);
+    // 스택 8192: cameraTask와 동일 근거(WiFiClient/printf 경로 포함 시 4096 여유 불확실)
+    xTaskCreatePinnedToCore(micTask, "mic", 8192, NULL, tskIDLE_PRIORITY + 1, NULL, 0);
   } else {
     Serial.println("[MIC] init failed - mic disabled, motor/camera control continues");
   }

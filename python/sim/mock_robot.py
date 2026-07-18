@@ -30,7 +30,7 @@ class MockRobot:
     def __init__(self, ip="127.0.0.1", port=8888):
         self.ip = ip
         self.port = port
-        self.joint_ticks = [2048] * 8  # ID 11-18 순서, ZERO_OFFSET=2048 기본값
+        self.joint_ticks = [4096] * 8  # ID 11-18 순서, ZERO_OFFSET=4096 기본값(docs/protocol.md SSoT)
         self.torque_on = False
         self.last_seq = None
         self.last_recv_time = None
@@ -97,6 +97,10 @@ class MockRobot:
             self.joint_ticks = ticks
             self.last_recv_time = time.monotonic()
             self.packet_count += 1
+            if not self.torque_on:
+                # protocol.md 안전 규칙: 안전정지 후 유효한 모션 패킷 재수신 시 torque 자동 재활성화
+                self.torque_on = True
+                print("[mock_robot] 유효 모션 패킷 수신 -> torque 자동 재활성화")
         print(f"[mock_robot] motion seq={seq} ticks={ticks}")
 
     def _handle_cmd(self, data):
