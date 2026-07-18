@@ -34,8 +34,6 @@ class q8_udp:
         self.ip = ip
         self.port = port
         self.JOINTS = joint_list
-        self.prev_pos = [90 for i in range(8)]
-        self.prev_profile = 0
         self.torque_on = False
         self.seq = 0
 
@@ -69,18 +67,6 @@ class q8_udp:
         self.torque_on = False
         return self._send_cmd(CMD_TORQUE_OFF)
 
-    def check_battery(self):
-        # 배터리 모니터링(MAX17043)은 이 프로젝트에서 미사용 -> no-op
-        return True
-
-    def record_data(self):
-        # SD카드 기록 기능 미사용 -> no-op
-        return True
-
-    def finish_recording(self):
-        # SD카드 기록 기능 미사용 -> no-op
-        return True
-
     def send_jump(self):
         return self._send_cmd(CMD_JUMP)
 
@@ -105,27 +91,6 @@ class q8_udp:
             mirrored_pos.append(joint_pos[0])
             mirrored_pos.append(joint_pos[1])
         return self.move_all(mirrored_pos, dur, False)
-
-    def bulkread(self, addr, len=4):
-        value = [0 for i in range(8)]
-        return value, True
-
-    def joint_read4(self, joint, addr):
-        value = 10
-        return value
-
-    def joint_read2(self, joint, addr):
-        value = 10
-        return value
-
-    def check_voltage(self):
-        voltage = 3.7
-        return voltage
-
-    def dxl2deg(self, angle_dxl):
-        friendly_per_dxl = 360.0 / 4096.0 / GEAR_RATIO
-        angle_friendly = (angle_dxl - ZERO_OFFSET) * friendly_per_dxl
-        return angle_friendly
 
     def deg2dxl(self, angle_friendly):
         friendly_per_dxl = 360.0 / 4096.0 / GEAR_RATIO

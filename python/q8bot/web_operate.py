@@ -8,6 +8,7 @@ KEYBOARD_MAPPING과 동일하게 유지한다.
 
 import argparse
 import json
+import logging
 import threading
 import time
 import urllib.request
@@ -16,7 +17,6 @@ from pathlib import Path
 
 from kinematics_solver import k_solver
 from udp_link import q8_udp
-from helpers import Q8Logger
 from gait_manager import GaitManager, GAITS
 from routine_generator import show_range, greet
 from control_config import JOYSTICK_CONFIG, apply_deadzone, get_joystick_direction
@@ -184,7 +184,7 @@ WEB_KEY_MAPPING = {
     },
     'actions': {
         'greet': 'h', 'battery': 'b', 'switch_gait': 'g', 'jump': 'j',
-        'reset': 'r', 'record': 'z', 'show_range': 'c',
+        'reset': 'r', 'show_range': 'c',
     },
 }
 
@@ -451,9 +451,6 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
                     log.error(f"Failed to load gait: {new_gait}")
                     gait_names.insert(0, gait_names.pop())
                 time.sleep(0.2)
-            elif is_action_pressed('record', keys, buttons):
-                log.debug("Record next movement")
-                time.sleep(0.2)
             elif is_action_pressed('show_range', keys, buttons):
                 log.info("Show Range")
                 show_range(q8)
@@ -462,7 +459,6 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
                 log.info("Greet")
                 run_greet(q8, leg, pos_ref, suppress)
                 time.sleep(0.2)
-            # battery: no-op (udp_link.check_battery)
 
         elapsed = time.monotonic() - loop_start
         time.sleep(max(0.0, tick_interval - elapsed))
@@ -589,7 +585,8 @@ def main():
     parser.add_argument('--port', type=int, default=8080, help='Web server port')
     args = parser.parse_args()
 
-    log = Q8Logger(debug=args.debug)
+    logging.basicConfig(format='%(levelname)s: %(message)s', level=logging.DEBUG if args.debug else logging.INFO)
+    log = logging.getLogger("kangyangi")
 
     leg = k_solver(CENTER_DIST, L1, L2, L1, L2)
     q8 = q8_udp(ip=args.ip) if args.ip else q8_udp()

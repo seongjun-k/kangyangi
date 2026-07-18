@@ -87,10 +87,6 @@ struct MotionCmd {
   int32_t ticks[8];
 };
 
-struct ControlCmd {
-  uint8_t ctrlCmd;  // 0=disable,1=enable,4=jump
-};
-
 static QueueHandle_t motionQueue = NULL;
 static QueueHandle_t cmdQueue = NULL;
 
@@ -125,11 +121,8 @@ void handleCommandPacket(const uint8_t* data) {
   uint8_t cmd = data[1];
   if (cmd != 0 && cmd != 1 && cmd != 4) return;  // 알 수 없는 cmd는 폐기
 
-  ControlCmd ctrlCmd;
-  ctrlCmd.ctrlCmd = cmd;
-
   lastValidPacketMs = millis();
-  xQueueSend(cmdQueue, &ctrlCmd, 0);  // 큐가 가득 차면 드롭(non-blocking, 콜백을 막지 않음)
+  xQueueSend(cmdQueue, &cmd, 0);  // 큐가 가득 차면 드롭(non-blocking, 콜백을 막지 않음)
 }
 
 void onUdpPacket(AsyncUDPPacket packet) {
@@ -163,11 +156,11 @@ void checkSafety() {
 // 자세)를 소비한다. 반환값은 뭔가 처리했는지 여부(loop의 idle 판단용).
 // ============================================================================
 bool processDxlQueue() {
-  ControlCmd ctrlCmd;
+  uint8_t ctrlCmd;
   if (xQueueReceive(cmdQueue, &ctrlCmd, 0) == pdTRUE) {
     // 안전 정지로 torque off된 상태에서 유효 명령 수신 시 재활성화 후 적용
     // (단, 명령 자체가 torque off면 재활성화 펄스 없이 tripped 해제만)
-    if (torqueSafetyTripped && ctrlCmd.ctrlCmd == 0) {
+    if (torqueSafetyTripped && ctrlCmd == 0) {
       torqueSafetyTripped = false;  // 이미 torque off 상태 -> 명령 결과와 동일
       return true;
     }
@@ -176,7 +169,7 @@ bool processDxlQueue() {
       torqueSafetyTripped = false;
     }
 
-    switch (ctrlCmd.ctrlCmd) {
+    switch (ctrlCmd) {
       case 0: q8.disableTorque(); break;
       case 1: q8.enableTorque(); break;
       case 4:
@@ -344,7 +337,7 @@ void setup() {
   lastValidPacketMs = millis();
 
   motionQueue = xQueueCreate(1, sizeof(MotionCmd));
-  cmdQueue = xQueueCreate(4, sizeof(ControlCmd));
+  cmdQueue = xQueueCreate(4, sizeof(uint8_t));
   if (motionQueue == NULL || cmdQueue == NULL) {
     Serial.println("[RTOS] Failed to create dxl queues - halting");
     while (1) { delay(1000); }  // Dynamixel 직렬화 불가 상태로 동작 금지
