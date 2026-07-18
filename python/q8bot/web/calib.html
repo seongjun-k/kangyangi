@@ -49,7 +49,7 @@
   <button id="btnExit">이탈</button>
 </div>
 
-<h2 style="font-size:0.95em;color:#999;font-weight:500;margin-top:16px;">관절 선택 (ID 11-18)</h2>
+<h2 style="font-size:0.95em;color:#999;font-weight:500;margin-top:16px;">관절 선택 (ID 1-8)</h2>
 <div class="joints" id="jointGrid"></div>
 
 <div id="tick">-</div>
@@ -68,9 +68,9 @@
 </div>
 
 <script>
-// 관절 순서는 protocol.md와 동일(ID 11-18): FL-hip, FL-knee, FR-hip, FR-knee, BL-hip, BL-knee, BR-hip, BR-knee
-const JOINT_LABELS = ['FL-hip(11)', 'FL-knee(12)', 'FR-hip(13)', 'FR-knee(14)',
-                       'BL-hip(15)', 'BL-knee(16)', 'BR-hip(17)', 'BR-knee(18)'];
+// 관절 순서는 protocol.md와 동일(ID 1-8): FL-hip, FL-knee, FR-hip, FR-knee, BL-hip, BL-knee, BR-hip, BR-knee
+const JOINT_LABELS = ['FL-hip(1)', 'FL-knee(2)', 'FR-hip(3)', 'FR-knee(4)',
+                       'BL-hip(5)', 'BL-knee(6)', 'BR-hip(7)', 'BR-knee(8)'];
 let selected = 0;
 let ticks = new Array(8).fill(4096);
 let active = false;

@@ -7,7 +7,7 @@
 | 오프셋 | 크기 | 필드 |
 |---|---|---|
 | 0 | 2 | seq (uint16 LE, 송신마다 +1, 랩어라운드 허용) |
-| 2 | 16 | angle×8 (uint16 LE ×8) — **Dynamixel raw tick (0–8191, extended position mode, 중앙 4096)**, ID 11→18 순서 |
+| 2 | 16 | angle×8 (uint16 LE ×8) — **Dynamixel raw tick (0–8191, extended position mode, 중앙 4096)**, ID 1→8 순서 |
 | 18 | 1 | checksum — 앞 18바이트 XOR |
 
 - 각도 변환(deg→tick)은 파이썬 측에서 수행 (`deg2dxl`).

@@ -12,7 +12,7 @@ import socket
 import struct
 from pathlib import Path
 
-DEFAULT_JOINTLIST = [i + 11 for i in range(8)]
+DEFAULT_JOINTLIST = [i + 1 for i in range(8)]  # 모터 ID 1-8 (펌웨어 q8Dynamixel.h _DXL과 일치)
 
 ROBOT_IP = "192.168.4.1"
 ROBOT_PORT = 8888
@@ -36,7 +36,7 @@ CALIBRATION_FILE = Path(__file__).parent / "calibration.json"
 
 
 def load_zero_offsets():
-    '''calibration.json이 있으면 관절별(ID 11-18 순서) 실측 오프셋을, 없으면 전 관절 ZERO_OFFSET을 반환.'''
+    '''calibration.json이 있으면 관절별(ID 1-8 순서) 실측 오프셋을, 없으면 전 관절 ZERO_OFFSET을 반환.'''
     if CALIBRATION_FILE.exists():
         try:
             data = json.loads(CALIBRATION_FILE.read_text())
@@ -107,7 +107,7 @@ class q8_udp:
         return self.move_all(mirrored_pos, dur, False)
 
     def send_raw_ticks(self, ticks):
-        '''이미 계산된 tick 8개(ID 11-18 순서)를 그대로 모션 패킷으로 송신.
+        '''이미 계산된 tick 8개(ID 1-8 순서)를 그대로 모션 패킷으로 송신.
         캘리브레이션 마법사가 deg2dxl을 거치지 않고 직접 tick을 보낼 때 사용.'''
         try:
             seq = self._next_seq()

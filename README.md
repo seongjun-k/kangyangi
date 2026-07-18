@@ -4,7 +4,7 @@ Quadruped robot based on [q8bot](https://github.com/EricYufengWu/q8bot), ported 
 
 ## Architecture
 
-Xbox controller → laptop (Python, `web_operate.py`) → WiFi UDP → XIAO ESP32-S3 (AP mode, 192.168.4.1) → UART half-duplex → Dynamixel XL-330 x8 (ID 11–18).
+Xbox controller → laptop (Python, `web_operate.py`) → WiFi UDP → XIAO ESP32-S3 (AP mode, 192.168.4.1) → UART half-duplex → Dynamixel XL-330 x8 (ID 1–8).
 
 - Web control UI: laptop `:8080` (browser — keyboard/gamepad + push-to-talk voice)
 - Camera (QVGA MJPEG): robot `:80`
