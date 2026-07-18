@@ -1,0 +1,10 @@
+# Q8bot(강양이) Python Dependencies
+
+# Core scientific computing
+numpy>=1.26.2
+scipy>=1.11.4
+
+# Robot control interface (keyboard/joystick 입력, 화면 표시)
+pygame>=2.5.2
+
+# 통신은 표준 라이브러리 socket(UDP) 사용 — pyserial 불필요.
