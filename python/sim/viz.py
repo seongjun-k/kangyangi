@@ -20,6 +20,11 @@ from udp_link import ZERO_OFFSET, GEAR_RATIO  # noqa: E402 (SSoT: python/q8bot/u
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 
+# 기본 폰트(DejaVu Sans)에 한글 글리프가 없어 제목이 깨짐 — CJK 폰트가 있으면 지정
+from matplotlib import font_manager as _fm
+if any("Noto Sans CJK KR" in f.name for f in _fm.fontManager.ttflist):
+    plt.rcParams["font.family"] = "Noto Sans CJK KR"
+
 # tick -> deg 역변환 계수. ZERO_OFFSET/GEAR_RATIO는 udp_link.py에서 import(SSoT).
 _DEG_PER_TICK = 360.0 / 4096.0 / GEAR_RATIO
 
