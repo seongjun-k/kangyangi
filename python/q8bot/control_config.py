@@ -5,33 +5,10 @@ Control mappings configuration for Q8bot.
 Defines keyboard and joystick control schemes using a two-layer mapping system.
 '''
 
-import pygame
 from helpers import Q8Logger
 
-# =============================================================================
-# KEYBOARD CONFIGURATION
-# =============================================================================
-
-KEYBOARD_MAPPING = {
-    'movement': {
-        'forward': pygame.K_w,
-        'backward': pygame.K_s,
-        'left': pygame.K_a,
-        'right': pygame.K_d,
-        'forward_left': pygame.K_q,
-        'forward_right': pygame.K_e,
-    },
-    'actions': {
-        'greet': pygame.K_h,
-        'battery': pygame.K_b,
-        'switch_gait': pygame.K_g,
-        'jump': pygame.K_j,
-        'reset': pygame.K_r,
-        'exit': pygame.K_ESCAPE,
-        'record': pygame.K_z,
-        'show_range': pygame.K_c,
-    }
-}
+# 키보드 매핑은 pygame GUI(operate.py) 삭제와 함께 제거됨.
+# 웹 UI의 문자열 키 매핑은 web_operate.py WEB_KEY_MAPPING 참조(동일 의미 유지).
 
 # =============================================================================
 # JOYSTICK CONFIGURATION

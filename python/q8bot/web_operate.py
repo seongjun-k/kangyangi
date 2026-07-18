@@ -18,6 +18,7 @@ from udp_link import q8_udp
 from helpers import Q8Logger
 from gait_manager import GaitManager, GAITS
 from routine_generator import show_range, greet
+from control_config import JOYSTICK_CONFIG, apply_deadzone, get_joystick_direction
 
 CENTER_DIST = 19.5
 L1 = 25
@@ -40,8 +41,29 @@ WEB_KEY_MAPPING = {
     },
 }
 
+# Xbox 컨트롤러 게임패드 매핑: control_config.py JOYSTICK_CONFIG의 "Xbox Series X Controller"
+# 항목을 그대로 사용(SSoT). 브라우저 Gamepad API는 Xbox 컨트롤러를 "standard" 매핑으로 노출하므로
+# 버튼 인덱스가 pygame 버전의 physical position 해석과 동일하게 맞아떨어진다.
+_XBOX_BUTTONS = JOYSTICK_CONFIG['controllers']['Xbox Series X Controller']['buttons']
+GAMEPAD_DEADZONE = JOYSTICK_CONFIG['controllers']['Xbox Series X Controller']['axes']['deadzone']
+GAMEPAD_ACTIONS = {
+    action: _XBOX_BUTTONS[position]
+    for action, position in JOYSTICK_CONFIG['action_mapping'].items()
+    if position in _XBOX_BUTTONS
+}
 
-def get_movement_direction(keys):
+
+def get_movement_direction(keys, axes=None):
+    '''input_handler.py InputHandler.get_movement_direction()의 의미를 보존:
+    게임패드 아날로그 스틱이 있으면 12방향 아날로그 매핑을 우선 사용하고,
+    입력이 없으면(또는 게임패드 미연결) 키보드 6방향 매핑으로 대체한다.'''
+    if axes:
+        x = apply_deadzone(axes.get('x', 0.0), GAMEPAD_DEADZONE)
+        y = apply_deadzone(axes.get('y', 0.0), GAMEPAD_DEADZONE)
+        direction = get_joystick_direction(x, y, analog_mode=True)
+        if direction:
+            return direction
+
     m = WEB_KEY_MAPPING['movement']
     if m['forward'] in keys:
         return 'f'
@@ -58,24 +80,36 @@ def get_movement_direction(keys):
     return None
 
 
+def is_action_pressed(action_name, keys, buttons):
+    '''키보드 키 또는 게임패드 버튼 중 하나라도 눌려있으면 액션 발동(마지막 입력 우선이 아닌 OR 조건 — 단순함 우선).'''
+    action_names = WEB_KEY_MAPPING['actions']
+    if action_name in action_names and action_names[action_name] in keys:
+        return True
+    return GAMEPAD_ACTIONS.get(action_name) in buttons
+
+
 class KeyState:
-    '''브라우저가 POST /keys로 보낸 눌린 키 집합을 보관. 하트비트 끊기면 전키 해제.'''
+    '''브라우저가 POST /keys로 보낸 눌린 키/게임패드 상태를 보관. 하트비트 끊기면 전체 해제.'''
 
     def __init__(self):
         self._lock = threading.Lock()
         self._keys = set()
+        self._axes = None      # {"x":..,"y":..} 또는 None(게임패드 미연결)
+        self._buttons = set()
         self._last_update = time.monotonic()
 
-    def update(self, keys):
+    def update(self, keys, axes=None, buttons=None):
         with self._lock:
             self._keys = set(keys)
+            self._axes = axes
+            self._buttons = set(buttons) if buttons else set()
             self._last_update = time.monotonic()
 
     def get(self):
         with self._lock:
             if time.monotonic() - self._last_update > HEARTBEAT_TIMEOUT:
-                return set()
-            return set(self._keys)
+                return set(), None, set()
+            return set(self._keys), self._axes, set(self._buttons)
 
 
 class RobotState:
@@ -118,14 +152,13 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
 
     movement = False
     tick_interval = 1.0 / SPEED
-    action_names = WEB_KEY_MAPPING['actions']
 
     while not stop_event.is_set():
         loop_start = time.monotonic()
-        keys = key_state.get()
+        keys, axes, buttons = key_state.get()
 
         if movement:
-            direction = get_movement_direction(keys)
+            direction = get_movement_direction(keys, axes)
             if direction:
                 if gait_manager.start_movement(direction):
                     pos = gait_manager.tick()
@@ -139,18 +172,18 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
                 gait_manager.stop()
                 movement = False
         else:
-            if get_movement_direction(keys) is not None:
+            if get_movement_direction(keys, axes) is not None:
                 movement = True
-            elif action_names['reset'] in keys:
+            elif is_action_pressed('reset', keys, buttons):
                 log.info("Gait Reset")
                 move_xy(pos_ref[0], pos_ref[1], 500)
                 time.sleep(0.2)
-            elif action_names['jump'] in keys:
+            elif is_action_pressed('jump', keys, buttons):
                 log.info("Jump")
                 q8.send_jump()
                 time.sleep(5)
                 move_xy(pos_ref[0], pos_ref[1], 500)
-            elif action_names['switch_gait'] in keys:
+            elif is_action_pressed('switch_gait', keys, buttons):
                 gait_names.append(gait_names.pop(0))
                 new_gait = gait_names[0]
                 if gait_manager.load_gait(new_gait):
@@ -161,14 +194,14 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
                     log.error(f"Failed to load gait: {new_gait}")
                     gait_names.insert(0, gait_names.pop())
                 time.sleep(0.2)
-            elif action_names['record'] in keys:
+            elif is_action_pressed('record', keys, buttons):
                 log.debug("Record next movement")
                 time.sleep(0.2)
-            elif action_names['show_range'] in keys:
+            elif is_action_pressed('show_range', keys, buttons):
                 log.info("Show Range")
                 show_range(q8)
                 time.sleep(0.2)
-            elif action_names['greet'] in keys:
+            elif is_action_pressed('greet', keys, buttons):
                 log.info("Greet")
                 greet(q8)
                 move_xy(pos_ref[0], pos_ref[1], 1000)
@@ -238,7 +271,9 @@ def make_handler(key_state, robot_state, q8, leg, pos_ref, robot_ip):
 
             if self.path == "/keys":
                 keys = payload.get("keys", [])
-                key_state.update(keys)
+                axes = payload.get("axes")  # 하위호환: 게임패드 미연결 시 없음
+                buttons = payload.get("buttons", [])
+                key_state.update(keys, axes, buttons)
                 self._send_json({"ok": True})
             elif self.path == "/cmd":
                 cmd = payload.get("cmd")

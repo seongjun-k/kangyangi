@@ -4,7 +4,5 @@
 numpy>=1.26.2
 scipy>=1.11.4
 
-# Robot control interface (keyboard/joystick 입력, 화면 표시)
-pygame>=2.5.2
-
+# 로봇 제어 UI는 웹(web_operate.py, 표준 라이브러리 http.server)로 통일 — pygame 불필요.
 # 통신은 표준 라이브러리 socket(UDP) 사용 — pyserial 불필요.

@@ -67,6 +67,7 @@
     <div class="stat-row"><span>Gait</span><span id="statGait">-</span></div>
     <div class="stat-row"><span>Seq</span><span id="statSeq">-</span></div>
     <div class="stat-row"><span>Send rate</span><span id="statRate">-</span></div>
+    <div class="stat-row"><span>Gamepad</span><span id="gpStatus">-</span></div>
     <div class="buttons">
       <button id="btnTorqueOn">Torque ON</button>
       <button id="btnTorqueOff">Torque OFF</button>
@@ -77,7 +78,8 @@
 <footer>
   Move: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>&nbsp; Turn: <kbd>Q</kbd>(fwd-left) <kbd>E</kbd>(fwd-right)&nbsp;
   <kbd>H</kbd> Greet &nbsp;<kbd>G</kbd> Switch gait &nbsp;<kbd>J</kbd> Jump &nbsp;<kbd>R</kbd> Reset &nbsp;<kbd>C</kbd> Show range
-  &nbsp;— 페이지에 포커스가 있어야 키 입력이 인식됩니다.
+  &nbsp;— 페이지에 포커스가 있어야 키 입력이 인식됩니다.<br>
+  Xbox 컨트롤러: 왼쪽 스틱으로 12방향 아날로그 보행, Y=Greet A=Switch gait X=Jump LB=Reset (브라우저 표준 게임패드 매핑, 버튼을 한 번 눌러야 연결이 인식됩니다).
 </footer>
 <script>
 // 로봇 카메라 IP 조회 후 <img> 소스 설정 (스트리밍은 로봇이 직접 제공, 프록시 없음)
@@ -92,11 +94,37 @@ fetch('/config').then(r => r.json()).then(cfg => {
 
 // 키 입력: keydown/keyup 이벤트 기반 + 200ms 하트비트(연결 안전, 서버는 500ms 끊기면 전키 해제)
 const pressed = new Set();
+
+// Xbox 컨트롤러(Gamepad API): 축 이벤트가 없어 rAF로 계속 폴링. 서버가 데드존/12방향
+// 아날로그 해석을 담당하므로(web_operate.py get_joystick_direction) 여기선 원시값만 전송.
+let gpAxes = null;
+let gpButtons = [];
+function pollGamepad() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  const gp = pads[0];
+  const status = document.getElementById('gpStatus');
+  if (gp) {
+    gpAxes = { x: gp.axes[0] || 0, y: gp.axes[1] || 0 };
+    gpButtons = [];
+    gp.buttons.forEach((b, i) => { if (b.pressed) gpButtons.push(i); });
+    status.textContent = 'connected';
+  } else {
+    gpAxes = null;
+    gpButtons = [];
+    status.textContent = '-';
+  }
+  requestAnimationFrame(pollGamepad);
+}
+requestAnimationFrame(pollGamepad);
+
 function sendKeys() {
+  const body = { keys: Array.from(pressed) };
+  if (gpAxes) body.axes = gpAxes;          // 게임패드 미연결 시 생략(하위호환)
+  if (gpButtons.length) body.buttons = gpButtons;
   fetch('/keys', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ keys: Array.from(pressed) }),
+    body: JSON.stringify(body),
   }).catch(() => {});
 }
 window.addEventListener('keydown', e => {
