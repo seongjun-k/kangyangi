@@ -21,12 +21,12 @@ CMD_TORQUE_OFF = 0
 CMD_TORQUE_ON = 1
 CMD_JUMP = 4
 
-# deg -> Dynamixel raw tick(0-4095) 변환 계수.
-# 원본 espnow.py의 deg2dxl 로직을 이식했으나 GEAR_RATIO/ZERO_OFFSET 값은
+# deg -> Dynamixel raw tick(0-8191, extended position mode) 변환 계수.
+# 원본 espnow.py의 deg2dxl 로직을 이식했으나 GEAR_RATIO 값은
 # control_config.py/helpers.py 어디에도 정의되어 있지 않았음(원본에서도 미사용 dead code).
-# ponytail: 추정값(기어비 1:1, 0deg=2048tick 중앙). 실물 캘리브레이션 후 조정 필요.
+# ZERO_OFFSET=4096은 펌웨어 q8Dynamixel.h:51 HOMING_OFFSET(_zeroOffset)과 일치(SSoT).
 GEAR_RATIO = 1.0
-ZERO_OFFSET = 2048
+ZERO_OFFSET = 4096
 
 
 class q8_udp:
@@ -130,4 +130,4 @@ class q8_udp:
     def deg2dxl(self, angle_friendly):
         friendly_per_dxl = 360.0 / 4096.0 / GEAR_RATIO
         angle_dxl = int(angle_friendly / friendly_per_dxl + 0.5) + ZERO_OFFSET
-        return max(0, min(4095, angle_dxl))  # 패킷 필드가 uint16이지만 tick 유효범위는 0-4095
+        return max(0, min(8191, angle_dxl))  # extended position mode tick 유효범위는 0-8191

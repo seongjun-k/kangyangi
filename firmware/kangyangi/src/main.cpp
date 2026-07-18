@@ -41,15 +41,42 @@ WiFiServer        camServer(80);
 bool cameraReady = false;
 
 // 안전 정지 상태 (500ms 무수신 시 torque off 1회)
+// lastValidPacketMs: WiFi 콜백 태스크(쓰기)와 loop 태스크(읽기)가 공유 -> volatile 유지
+// torqueSafetyTripped: loop 태스크만 읽고 쓴다(복구도 loop에서 수행) -> volatile 불필요
 volatile unsigned long lastValidPacketMs = 0;
 bool torqueSafetyTripped = false;
 
-// 모션 패킷 중복 폐기용 마지막 seq
+// 모션 패킷 중복 폐기용 마지막 seq (onUdpPacket 콜백에서만 접근하는 단일 쓰기자)
 bool haveSeq = false;
 uint16_t lastSeq = 0;
 
+// 모션 패킷 tick 유효 범위: 중립 4096(HOMING_OFFSET) 기준 0~8191(13bit 미만) 벗어나면 폐기
+static const int32_t TICK_MIN = 0;
+static const int32_t TICK_MAX = 8191;
+
+// ============================================================================
+// Dynamixel 접근 직렬화용 큐
+// AsyncUDP onPacket 콜백은 WiFi 태스크에서 실행되므로 q8dxl(UART, half-duplex)에
+// 직접 접근하면 loop() 태스크와 경합한다. 콜백은 검증/파싱만 하고 명령을 큐에
+// 넣으며, 실제 Dynamixel UART 접근은 loop() 태스크 한 곳에서만 수행한다
+// (원본 q8bot의 단일 태스크 소유 방식과 동일).
+// ============================================================================
+enum DxlCmdType : uint8_t {
+  DXL_CMD_MOTION = 0,
+  DXL_CMD_CONTROL = 1,
+};
+
+struct DxlCommand {
+  uint8_t type;       // DxlCmdType
+  int32_t ticks[8];   // type == MOTION일 때 사용
+  uint8_t ctrlCmd;    // type == CONTROL일 때 사용 (0=disable,1=enable,4=jump)
+};
+
+static QueueHandle_t dxlQueue = NULL;
+
 // ============================================================================
 // UDP 패킷 처리 (docs/protocol.md 참조)
+// 아래 handle*는 WiFi 콜백 태스크에서 실행 — 검증 후 큐 적재만 하고 반환한다.
 // ============================================================================
 uint8_t xorChecksum(const uint8_t* data, size_t len) {
   uint8_t sum = 0;
@@ -63,27 +90,28 @@ void handleMotionPacket(const uint8_t* data) {
   haveSeq = true;
   lastSeq = seq;
 
-  int32_t ticks[8];
+  DxlCommand dxlCmd;
+  dxlCmd.type = DXL_CMD_MOTION;
   for (int i = 0; i < 8; i++) {
-    ticks[i] = data[2 + i * 2] | (data[2 + i * 2 + 1] << 8);
+    int32_t v = data[2 + i * 2] | (data[2 + i * 2 + 1] << 8);
+    if (v < TICK_MIN || v > TICK_MAX) return;  // 범위 밖 값이 하나라도 있으면 패킷 전체 폐기
+    dxlCmd.ticks[i] = v;
   }
-  q8.bulkWrite(ticks);
 
   lastValidPacketMs = millis();
-  torqueSafetyTripped = false;
+  xQueueSend(dxlQueue, &dxlCmd, 0);  // 큐가 가득 차면 드롭(non-blocking, 콜백을 막지 않음)
 }
 
 void handleCommandPacket(const uint8_t* data) {
   uint8_t cmd = data[1];
-  switch (cmd) {
-    case 0: q8.disableTorque(); break;
-    case 1: q8.enableTorque(); break;
-    case 4: q8.jump(); break;
-    default: break;  // 알 수 없는 cmd는 무시
-  }
+  if (cmd != 0 && cmd != 1 && cmd != 4) return;  // 알 수 없는 cmd는 폐기
+
+  DxlCommand dxlCmd;
+  dxlCmd.type = DXL_CMD_CONTROL;
+  dxlCmd.ctrlCmd = cmd;
 
   lastValidPacketMs = millis();
-  torqueSafetyTripped = false;
+  xQueueSend(dxlQueue, &dxlCmd, 0);
 }
 
 void onUdpPacket(AsyncUDPPacket packet) {
@@ -102,12 +130,45 @@ void onUdpPacket(AsyncUDPPacket packet) {
 }
 
 // ============================================================================
-// 안전 정지: 마지막 유효 패킷 후 500ms 경과 시 torque off 1회
+// 안전 정지: 마지막 유효 패킷 후 500ms 경과 시 torque off 1회 (loop 태스크에서만 호출)
 // ============================================================================
 void checkSafety() {
   if (!torqueSafetyTripped && millis() - lastValidPacketMs > 500) {
     q8.disableTorque();
     torqueSafetyTripped = true;
+  }
+}
+
+// ============================================================================
+// dxlQueue 소비 — 모든 Dynamixel UART 접근은 이 함수(loop 태스크)에서만 수행
+// ============================================================================
+void processDxlQueue() {
+  DxlCommand dxlCmd;
+  if (xQueueReceive(dxlQueue, &dxlCmd, 0) != pdTRUE) return;
+
+  // 안전 정지로 torque off된 상태에서 유효 명령 수신 시 재활성화 후 적용
+  if (torqueSafetyTripped) {
+    q8.enableTorque();
+    torqueSafetyTripped = false;
+  }
+
+  if (dxlCmd.type == DXL_CMD_MOTION) {
+    q8.bulkWrite(dxlCmd.ticks);
+  } else {
+    switch (dxlCmd.ctrlCmd) {
+      case 0: q8.disableTorque(); break;
+      case 1: q8.enableTorque(); break;
+      case 4:
+        q8.jump();
+        // jump()는 내부에서 약 7.3초 delay(blocking)로 진행된다. 그동안 loop는
+        // checkSafety를 호출하지 못하므로 종료 시점 기준으로 lastValidPacketMs를
+        // 갱신해 직후 오탐(안전 정지)을 막는다. (jump 전용 유예 타이머를 두는
+        // 것보다 단순하고, jump는 이미 loop 태스크를 독점하므로 다른 패킷도
+        // 그 사이 처리되지 않기 때문에 이 갱신만으로 충분하다.)
+        lastValidPacketMs = millis();
+        break;
+      default: break;
+    }
   }
 }
 
@@ -183,6 +244,12 @@ void setup() {
 
   lastValidPacketMs = millis();
 
+  dxlQueue = xQueueCreate(4, sizeof(DxlCommand));
+  if (dxlQueue == NULL) {
+    Serial.println("[RTOS] Failed to create dxlQueue - halting");
+    while (1) { delay(1000); }  // Dynamixel 직렬화 불가 상태로 동작 금지
+  }
+
   WiFi.mode(WIFI_AP);
   WiFi.softAP("kangyangi", "kangyangi");
 
@@ -199,5 +266,6 @@ void setup() {
 
 void loop() {
   checkSafety();
+  processDxlQueue();
   handleCameraClient();
 }

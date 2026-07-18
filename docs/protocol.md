@@ -7,7 +7,7 @@
 | 오프셋 | 크기 | 필드 |
 |---|---|---|
 | 0 | 2 | seq (uint16 LE, 송신마다 +1, 랩어라운드 허용) |
-| 2 | 16 | angle×8 (uint16 LE ×8) — **Dynamixel raw tick (0–4095)**, ID 11→18 순서 |
+| 2 | 16 | angle×8 (uint16 LE ×8) — **Dynamixel raw tick (0–8191, extended position mode, 중앙 4096)**, ID 11→18 순서 |
 | 18 | 1 | checksum — 앞 18바이트 XOR |
 
 - 각도 변환(deg→tick)은 파이썬 측에서 수행 (`deg2dxl`).
@@ -24,6 +24,7 @@
 ## 안전 규칙 (생략 불가)
 
 - 펌웨어는 **500ms 무수신 시 torque off** (안전정지).
+- 안전정지 후 유효한 모션 패킷을 다시 수신하면 펌웨어가 torque를 자동 재활성화한다.
 - checksum 불일치·길이 불일치(19도 3도 아님) 패킷은 폐기.
 
 ## 구현 위치 (변경 시 함께 수정)
