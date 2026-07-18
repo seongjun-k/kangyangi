@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>Q8 V2.5 PCB 조립 보조</title>
+<style>
+body { font-family: sans-serif; margin: 16px; background: #fafafa; color: #222; }
+h1 { font-size: 20px; }
+.layout { display: flex; flex-direction: column; gap: 16px; align-items: stretch; }
+.boards { display: flex; flex-direction: column; gap: 16px; }
+.board-box { background: #fff; border: 1px solid #ccc; border-radius: 6px; padding: 8px; }
+.board-box h2 { font-size: 14px; margin: 0 0 6px; }
+svg { display: block; width: 100%; max-width: 1200px; height: auto; }
+.outline { fill: none; stroke: #333; stroke-width: 3; }
+.marker rect { stroke: #333; stroke-width: 1; cursor: pointer; }
+.marker text { text-anchor: start; pointer-events: none; fill: #222; font-weight: 600; }
+.marker.dnp rect { fill: #ddd; stroke: #999; stroke-dasharray: 3 2; }
+.marker.dnp text { fill: #999; }
+.marker.dim rect { opacity: 0.15; }
+.marker.dim text { opacity: 0.15; }
+.marker.hi rect { stroke: #d62728; stroke-width: 2.5; }
+table { border-collapse: collapse; background: #fff; }
+th, td { border: 1px solid #ccc; padding: 4px 8px; font-size: 13px; text-align: left; }
+th { background: #eee; }
+.bom-row { cursor: pointer; }
+.bom-row:hover { background: #f0f7ff; }
+.bom-row.selected { background: #cfe3ff; }
+.bom-row.dnp td { color: #999; text-decoration: line-through; }
+.swatch { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 2px; vertical-align: middle; }
+.dnp-swatch { background: #ddd; border: 1px dashed #999; }
+</style>
+</head>
+<body>
+<h1>Q8 V2.5 PCB 조립 보조</h1>
+<p>표 행 또는 마커를 클릭하면 해당 부품이 강조됩니다. 회색 점선/취소선 항목은 미실장(DNP)입니다.</p>
+<div class="layout">
+  <div class="boards">
+    <div class="board-box">
+      <h2>Top (부품면)</h2>
+      <svg viewBox="0 0 4924.42 1558.27">
+        <path class="outline" d="M3324.42,907.09 A19.69,19.69 0 0 0 3304.73,926.78 M4627.56,926.78 A19.69,19.69 0 0 0 4607.88,907.09 M2157.25,918.62 A19.69,19.69 0 0 0 2163.01,932.54 M2229.83,999.36 A19.69,19.69 0 0 0 2243.75,1005.12 M2680.67,1005.12 A19.69,19.69 0 0 0 2694.59,999.36 M2761.41,932.54 A19.69,19.69 0 0 0 2767.17,918.62 M4322.59,550.93 A19.69,19.69 0 0 0 4336.51,556.70 M4741.74,556.70 A19.69,19.69 0 0 0 4761.42,537.01 M4761.42,182.68 A19.69,19.69 0 0 0 4741.74,163.00 M4013.39,163.00 A19.69,19.69 0 0 0 3993.71,182.68 M3993.71,213.90 A19.69,19.69 0 0 0 3999.47,227.82 M3304.73,1174.53 A19.69,19.69 0 0 0 3310.49,1188.45 M3495.81,1373.76 A19.69,19.69 0 0 0 3509.73,1379.53 M4741.74,1379.53 A19.69,19.69 0 0 0 4761.42,1359.85 M4761.42,1133.47 A19.69,19.69 0 0 0 4741.74,1113.78 M4627.56,1015.36 A98.43,98.43 0 0 0 4725.99,1113.78 M930.71,182.68 A19.69,19.69 0 0 0 911.03,163.00 M182.68,163.00 A19.69,19.69 0 0 0 163.00,182.68 M163.00,537.01 A19.69,19.69 0 0 0 182.68,556.70 M587.92,556.70 A19.69,19.69 0 0 0 601.83,550.93 M924.95,227.82 A19.69,19.69 0 0 0 930.71,213.90 M316.54,907.09 A19.69,19.69 0 0 0 296.86,926.78 M198.43,1113.78 A98.43,98.43 0 0 0 296.86,1015.36 M182.68,1113.78 A19.69,19.69 0 0 0 163.00,1133.47 M163.00,1359.85 A19.69,19.69 0 0 0 182.68,1379.53 M1414.69,1379.53 A19.69,19.69 0 0 0 1428.61,1373.76 M1613.93,1188.45 A19.69,19.69 0 0 0 1619.69,1174.53 M1619.69,926.78 A19.69,19.69 0 0 0 1600.00,907.09 M4627.56,1015.36 L4627.56,926.78 M3324.42,907.09 L4607.88,907.09 M4824.42,1458.27 L4824.42,100.00 M100.00,1458.27 L4824.42,1458.27 M100.00,1458.27 L100.00,100.00 L2157.25,100.00 M2157.25,918.62 L2157.25,100.00 M2163.01,932.54 L2229.83,999.36 M2243.75,1005.12 L2680.67,1005.12 M2694.59,999.36 L2761.41,932.54 M2767.17,918.62 L2767.17,100.00 L4824.42,100.00 M4336.51,556.70 L4741.74,556.70 M4761.42,537.01 L4761.42,182.68 M4013.39,163.00 L4741.74,163.00 M3993.71,213.90 L3993.71,182.68 M3999.47,227.82 L4322.59,550.93 M3304.73,1174.53 L3304.73,926.78 M3310.49,1188.45 L3495.81,1373.76 M3509.73,1379.53 L4741.74,1379.53 M4761.42,1359.85 L4761.42,1133.47 M4725.99,1113.78 L4741.74,1113.78 M182.68,163.00 L911.03,163.00 M163.00,537.01 L163.00,182.68 M182.68,556.70 L587.92,556.70 M601.83,550.93 L924.95,227.82 M930.71,213.90 L930.71,182.68 M296.86,1015.36 L296.86,926.78 M182.68,1113.78 L198.43,1113.78 M163.00,1359.85 L163.00,1133.47 M182.68,1379.53 L1414.69,1379.53 M1428.61,1373.76 L1613.93,1188.45 M1619.69,1174.53 L1619.69,926.78 M316.54,907.09 L1600.00,907.09"/>
+        <g class="marker" data-des="U2" data-group="IC BUFFER VSSOP-8" transform="translate(1932.05,649.88)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#8cd17d"/><text x="32.7" y="15.0" font-size="45.1">U2</text></g>
+<g class="marker" data-des="J5" data-group="HEADER 1x3 2.54mm" transform="translate(3308.67,1379.53)"><rect x="-53.3" y="-53.3" width="106.7" height="106.7" style="fill:#fabfd2"/><text x="57.3" y="17.8" font-size="53.3">J5</text></g>
+<g class="marker" data-des="U3" data-group="IC BOOST SOT583" transform="translate(3470.21,561.41)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#f1ce63"/><text x="32.7" y="15.0" font-size="45.1">U3</text></g>
+<g class="marker dnp" data-des="C6" data-group="(미실장) CAP 10nF" transform="translate(2977.21,379.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style=""/><text x="32.7" y="15.0" font-size="45.1">C6</text></g>
+<g class="marker dnp" data-des="R7" data-group="(미실장) RES 10K" transform="translate(2947.21,779.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style=""/><text x="32.7" y="15.0" font-size="45.1">R7</text></g>
+<g class="marker" data-des="D1" data-group="LED RED 0603" transform="translate(2977.21,139.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#ff9da7"/><text x="32.7" y="15.0" font-size="45.1">D1</text></g>
+<g class="marker" data-des="S1" data-group="SWITCH SLIDE" transform="translate(3632.21,188.35)"><rect x="-53.3" y="-53.3" width="106.7" height="106.7" style="fill:#af7aa1"/><text x="57.3" y="17.8" font-size="53.3">S1</text></g>
+<g class="marker dnp" data-des="U4" data-group="(미실장) MAX17043 게이지" transform="translate(2972.21,494.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style=""/><text x="32.7" y="15.0" font-size="45.1">U4</text></g>
+<g class="marker dnp" data-des="R6" data-group="(미실장) RES 10K" transform="translate(3012.21,779.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style=""/><text x="32.7" y="15.0" font-size="45.1">R6</text></g>
+<g class="marker" data-des="R9" data-group="RES 1K 0603" transform="translate(3302.21,249.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#e15759"/><text x="32.7" y="15.0" font-size="45.1">R9</text></g>
+<g class="marker dnp" data-des="R5" data-group="(미실장) RES 1K" transform="translate(2977.21,319.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style=""/><text x="32.7" y="15.0" font-size="45.1">R5</text></g>
+<g class="marker" data-des="R1" data-group="RES 200Ω 0603" transform="translate(2977.21,194.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#f28e2b"/><text x="32.7" y="15.0" font-size="45.1">R1</text></g>
+<g class="marker" data-des="Q1" data-group="MOSFET P-CH" transform="translate(3387.21,249.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#bab0ac"/><text x="32.7" y="15.0" font-size="45.1">Q1</text></g>
+<g class="marker dnp" data-des="C5" data-group="(미실장) CAP 1uF" transform="translate(2977.21,259.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style=""/><text x="32.7" y="15.0" font-size="45.1">C5</text></g>
+<g class="marker" data-des="R8" data-group="RES 22Ω 0603" transform="translate(3392.21,154.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#4e79a7"/><text x="32.7" y="15.0" font-size="45.1">R8</text></g>
+<g class="marker" data-des="R4" data-group="RES 10K 0603" transform="translate(1867.21,484.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#59a14f"/><text x="32.7" y="15.0" font-size="45.1">R4</text></g>
+<g class="marker" data-des="R3" data-group="RES 10K 0603" transform="translate(1942.21,484.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#59a14f"/><text x="32.7" y="15.0" font-size="45.1">R3</text></g>
+<g class="marker" data-des="R2" data-group="RES 10K 0603" transform="translate(2007.21,744.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#59a14f"/><text x="32.7" y="15.0" font-size="45.1">R2</text></g>
+<g class="marker" data-des="U1" data-group="XIAO ESP32S3 SENSE" transform="translate(2462.21,514.57)"><rect x="-53.3" y="-53.3" width="106.7" height="106.7" style="fill:#a0cbe8"/><text x="57.3" y="17.8" font-size="53.3">U1</text></g>
+<g class="marker" data-des="L1" data-group="IND 470nH" transform="translate(3414.21,414.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#d37295"/><text x="32.7" y="15.0" font-size="45.1">L1</text></g>
+<g class="marker" data-des="D2" data-group="DIODE SCHOTTKY SOD323" transform="translate(1952.21,214.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#9c755f"/><text x="32.7" y="15.0" font-size="45.1">D2</text></g>
+<g class="marker" data-des="C4" data-group="CAP ALUM 47uF" transform="translate(3722.21,464.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#b07aa1"/><text x="32.7" y="15.0" font-size="45.1">C4</text></g>
+<g class="marker" data-des="C3" data-group="CAP 10uF 0805" transform="translate(3567.21,549.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#edc948"/><text x="32.7" y="15.0" font-size="45.1">C3</text></g>
+<g class="marker" data-des="C2" data-group="CAP 10uF 0805" transform="translate(3341.21,546.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#edc948"/><text x="32.7" y="15.0" font-size="45.1">C2</text></g>
+<g class="marker" data-des="C1" data-group="CAP 0.1uF 0603" transform="translate(2007.21,519.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#76b7b2"/><text x="32.7" y="15.0" font-size="45.1">C1</text></g>
+<g class="marker dnp" data-des="BT1" data-group="배터리 클립 (스루홀)" transform="translate(2058.21,386.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style=""/><text x="32.7" y="15.0" font-size="45.1">BT1</text></g>
+<g class="marker" data-des="J7" data-group="HEADER 1x3 2.54mm" transform="translate(4115.75,710.24)"><rect x="-53.3" y="-53.3" width="106.7" height="106.7" style="fill:#fabfd2"/><text x="57.3" y="17.8" font-size="53.3">J7</text></g>
+<g class="marker" data-des="J3" data-group="HEADER 1x3 2.54mm" transform="translate(1615.75,749.61)"><rect x="-53.3" y="-53.3" width="106.7" height="106.7" style="fill:#fabfd2"/><text x="57.3" y="17.8" font-size="53.3">J3</text></g>
+<g class="marker" data-des="J1" data-group="HEADER 1x3 2.54mm" transform="translate(178.75,710.24)"><rect x="-53.3" y="-53.3" width="106.7" height="106.7" style="fill:#fabfd2"/><text x="57.3" y="17.8" font-size="53.3">J1</text></g>
+      </svg>
+    </div>
+    <div class="board-box">
+      <h2>Bottom (반대면, X축 미러)</h2>
+      <svg viewBox="0 0 4924.42 1558.27">
+        <path class="outline" d="M1600.00,907.09 A19.69,19.69 0 0 1 1619.69,926.78 M296.86,926.78 A19.69,19.69 0 0 1 316.54,907.09 M2767.17,918.62 A19.69,19.69 0 0 1 2761.41,932.54 M2694.59,999.36 A19.69,19.69 0 0 1 2680.67,1005.12 M2243.75,1005.12 A19.69,19.69 0 0 1 2229.83,999.36 M2163.01,932.54 A19.69,19.69 0 0 1 2157.25,918.62 M601.83,550.93 A19.69,19.69 0 0 1 587.91,556.70 M182.68,556.70 A19.69,19.69 0 0 1 163.00,537.01 M163.00,182.68 A19.69,19.69 0 0 1 182.68,163.00 M911.03,163.00 A19.69,19.69 0 0 1 930.71,182.68 M930.71,213.90 A19.69,19.69 0 0 1 924.95,227.82 M1619.69,1174.53 A19.69,19.69 0 0 1 1613.93,1188.45 M1428.61,1373.76 A19.69,19.69 0 0 1 1414.69,1379.53 M182.68,1379.53 A19.69,19.69 0 0 1 163.00,1359.85 M163.00,1133.47 A19.69,19.69 0 0 1 182.68,1113.78 M296.86,1015.36 A98.43,98.43 0 0 1 198.43,1113.78 M3993.71,182.68 A19.69,19.69 0 0 1 4013.39,163.00 M4741.74,163.00 A19.69,19.69 0 0 1 4761.42,182.68 M4761.42,537.01 A19.69,19.69 0 0 1 4741.74,556.70 M4336.50,556.70 A19.69,19.69 0 0 1 4322.59,550.93 M3999.47,227.82 A19.69,19.69 0 0 1 3993.71,213.90 M4607.88,907.09 A19.69,19.69 0 0 1 4627.56,926.78 M4725.99,1113.78 A98.43,98.43 0 0 1 4627.56,1015.36 M4741.74,1113.78 A19.69,19.69 0 0 1 4761.42,1133.47 M4761.42,1359.85 A19.69,19.69 0 0 1 4741.74,1379.53 M3509.73,1379.53 A19.69,19.69 0 0 1 3495.81,1373.76 M3310.49,1188.45 A19.69,19.69 0 0 1 3304.73,1174.53 M3304.73,926.78 A19.69,19.69 0 0 1 3324.42,907.09 M296.86,1015.36 L296.86,926.78 M1600.00,907.09 L316.54,907.09 M100.00,1458.27 L100.00,100.00 M4824.42,1458.27 L100.00,1458.27 M4824.42,1458.27 L4824.42,100.00 L2767.17,100.00 M2767.17,918.62 L2767.17,100.00 M2761.41,932.54 L2694.59,999.36 M2680.67,1005.12 L2243.75,1005.12 M2229.83,999.36 L2163.01,932.54 M2157.25,918.62 L2157.25,100.00 L100.00,100.00 M587.91,556.70 L182.68,556.70 M163.00,537.01 L163.00,182.68 M911.03,163.00 L182.68,163.00 M930.71,213.90 L930.71,182.68 M924.95,227.82 L601.83,550.93 M1619.69,1174.53 L1619.69,926.78 M1613.93,1188.45 L1428.61,1373.76 M1414.69,1379.53 L182.68,1379.53 M163.00,1359.85 L163.00,1133.47 M198.43,1113.78 L182.68,1113.78 M4741.74,163.00 L4013.39,163.00 M4761.42,537.01 L4761.42,182.68 M4741.74,556.70 L4336.50,556.70 M4322.59,550.93 L3999.47,227.82 M3993.71,213.90 L3993.71,182.68 M4627.56,1015.36 L4627.56,926.78 M4741.74,1113.78 L4725.99,1113.78 M4761.42,1359.85 L4761.42,1133.47 M4741.74,1379.53 L3509.73,1379.53 M3495.81,1373.76 L3310.49,1188.45 M3304.73,1174.53 L3304.73,926.78 M4607.88,907.09 L3324.42,907.09"/>
+        <g class="marker" data-des="J9" data-group="JST SH 4P" transform="translate(3617.21,200.75)"><rect x="-53.3" y="-53.3" width="106.7" height="106.7" style="fill:#79706e"/><text x="57.3" y="17.8" font-size="53.3">J9</text></g>
+<g class="marker" data-des="U5" data-group="IC BOOST SOT583" transform="translate(3470.21,561.41)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#f1ce63"/><text x="32.7" y="15.0" font-size="45.1">U5</text></g>
+<g class="marker" data-des="Q2" data-group="MOSFET P-CH" transform="translate(3387.21,249.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#bab0ac"/><text x="32.7" y="15.0" font-size="45.1">Q2</text></g>
+<g class="marker" data-des="L2" data-group="IND 470nH" transform="translate(3414.21,414.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#d37295"/><text x="32.7" y="15.0" font-size="45.1">L2</text></g>
+<g class="marker" data-des="C9" data-group="CAP ALUM 47uF" transform="translate(3722.21,464.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#b07aa1"/><text x="32.7" y="15.0" font-size="45.1">C9</text></g>
+<g class="marker" data-des="C8" data-group="CAP 10uF 0805" transform="translate(3567.21,549.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#edc948"/><text x="32.7" y="15.0" font-size="45.1">C8</text></g>
+<g class="marker" data-des="C7" data-group="CAP 10uF 0805" transform="translate(3341.21,546.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style="fill:#edc948"/><text x="32.7" y="15.0" font-size="45.1">C7</text></g>
+<g class="marker dnp" data-des="BT2" data-group="배터리 클립 (스루홀)" transform="translate(2057.21,386.57)"><rect x="-28.7" y="-28.7" width="57.5" height="57.5" style=""/><text x="32.7" y="15.0" font-size="45.1">BT2</text></g>
+<g class="marker" data-des="J8" data-group="HEADER 1x3 2.54mm" transform="translate(178.74,710.24)"><rect x="-53.3" y="-53.3" width="106.7" height="106.7" style="fill:#fabfd2"/><text x="57.3" y="17.8" font-size="53.3">J8</text></g>
+<g class="marker" data-des="J6" data-group="HEADER 1x3 2.54mm" transform="translate(1615.75,749.61)"><rect x="-53.3" y="-53.3" width="106.7" height="106.7" style="fill:#fabfd2"/><text x="57.3" y="17.8" font-size="53.3">J6</text></g>
+<g class="marker" data-des="J4" data-group="HEADER 1x3 2.54mm" transform="translate(3308.67,1379.53)"><rect x="-53.3" y="-53.3" width="106.7" height="106.7" style="fill:#fabfd2"/><text x="57.3" y="17.8" font-size="53.3">J4</text></g>
+<g class="marker" data-des="J2" data-group="HEADER 1x3 2.54mm" transform="translate(4115.75,710.24)"><rect x="-53.3" y="-53.3" width="106.7" height="106.7" style="fill:#fabfd2"/><text x="57.3" y="17.8" font-size="53.3">J2</text></g>
+      </svg>
+    </div>
+  </div>
+  <table>
+    <thead><tr><th>그룹(값)</th><th>Mfg Part #</th><th>Designator</th><th>수량</th><th>면</th></tr></thead>
+    <tbody>
+    <tr class="bom-row" data-group="RES 22Ω 0603" data-des="R8"><td><span class="swatch" style="background:#4e79a7"></span>RES 22Ω 0603</td><td>RC0603FR-0722RL</td><td>R8</td><td>1</td><td>Top</td></tr>
+<tr class="bom-row" data-group="RES 200Ω 0603" data-des="R1"><td><span class="swatch" style="background:#f28e2b"></span>RES 200Ω 0603</td><td>RC0603FR-07200RL</td><td>R1</td><td>1</td><td>Top</td></tr>
+<tr class="bom-row" data-group="RES 10K 0603" data-des="R2,R3,R4"><td><span class="swatch" style="background:#59a14f"></span>RES 10K 0603</td><td>AF0603FR-0710KL</td><td>R2,R3,R4</td><td>3</td><td>Top</td></tr>
+<tr class="bom-row" data-group="RES 1K 0603" data-des="R9"><td><span class="swatch" style="background:#e15759"></span>RES 1K 0603</td><td>AC0603FR-071KL</td><td>R9</td><td>1</td><td>Top</td></tr>
+<tr class="bom-row" data-group="CAP 0.1uF 0603" data-des="C1"><td><span class="swatch" style="background:#76b7b2"></span>CAP 0.1uF 0603</td><td>CC0603KRX7R8BB104</td><td>C1</td><td>1</td><td>Top</td></tr>
+<tr class="bom-row" data-group="CAP 10uF 0805" data-des="C2,C3,C7,C8"><td><span class="swatch" style="background:#edc948"></span>CAP 10uF 0805</td><td>CC0805KKX5R8BB106</td><td>C2,C3,C7,C8</td><td>4</td><td>Bottom/Top</td></tr>
+<tr class="bom-row" data-group="CAP ALUM 47uF" data-des="C4,C9"><td><span class="swatch" style="background:#b07aa1"></span>CAP ALUM 47uF</td><td>865080342006</td><td>C4,C9</td><td>2</td><td>Bottom/Top</td></tr>
+<tr class="bom-row" data-group="LED RED 0603" data-des="D1"><td><span class="swatch" style="background:#ff9da7"></span>LED RED 0603</td><td>LTST-C190KRKT</td><td>D1</td><td>1</td><td>Top</td></tr>
+<tr class="bom-row" data-group="DIODE SCHOTTKY SOD323" data-des="D2"><td><span class="swatch" style="background:#9c755f"></span>DIODE SCHOTTKY SOD323</td><td>NSR0320MW2T1G</td><td>D2</td><td>1</td><td>Top</td></tr>
+<tr class="bom-row" data-group="MOSFET P-CH" data-des="Q1,Q2"><td><span class="swatch" style="background:#bab0ac"></span>MOSFET P-CH</td><td>MCH6351-TL-W</td><td>Q1,Q2</td><td>2</td><td>Bottom/Top</td></tr>
+<tr class="bom-row" data-group="SWITCH SLIDE" data-des="S1"><td><span class="swatch" style="background:#af7aa1"></span>SWITCH SLIDE</td><td>EG1215AA</td><td>S1</td><td>1</td><td>Top</td></tr>
+<tr class="bom-row" data-group="IC BUFFER VSSOP-8" data-des="U2"><td><span class="swatch" style="background:#8cd17d"></span>IC BUFFER VSSOP-8</td><td>SN74LVC2G241DCUR</td><td>U2</td><td>1</td><td>Top</td></tr>
+<tr class="bom-row" data-group="IC BOOST SOT583" data-des="U3,U5"><td><span class="swatch" style="background:#f1ce63"></span>IC BOOST SOT583</td><td>TPS610333DRLR</td><td>U3,U5</td><td>2</td><td>Bottom/Top</td></tr>
+<tr class="bom-row" data-group="IND 470nH" data-des="L1,L2"><td><span class="swatch" style="background:#d37295"></span>IND 470nH</td><td>XGL4020-471MEC</td><td>L1,L2</td><td>2</td><td>Bottom/Top</td></tr>
+<tr class="bom-row" data-group="XIAO ESP32S3 SENSE" data-des="U1"><td><span class="swatch" style="background:#a0cbe8"></span>XIAO ESP32S3 SENSE</td><td>113991115</td><td>U1</td><td>1</td><td>Top</td></tr>
+<tr class="bom-row" data-group="HEADER 1x3 2.54mm" data-des="J1,J2,J3,J4,J5,J6,J7,J8"><td><span class="swatch" style="background:#fabfd2"></span>HEADER 1x3 2.54mm</td><td>RS1-03-G</td><td>J1,J2,J3,J4,J5,J6,J7,J8</td><td>8</td><td>Bottom/Top</td></tr>
+<tr class="bom-row" data-group="JST SH 4P" data-des="J9"><td><span class="swatch" style="background:#79706e"></span>JST SH 4P</td><td>BM04B-SRSS-TBT(LF)(SN)</td><td>J9</td><td>1</td><td>Bottom</td></tr>
+<tr class="bom-row dnp" data-group="(미실장) MAX17043 게이지" data-des="U4"><td><span class="swatch dnp-swatch"></span>(미실장) MAX17043 게이지</td><td>-</td><td>U4</td><td>1</td><td>Top</td></tr>
+<tr class="bom-row dnp" data-group="(미실장) CAP 1uF" data-des="C5"><td><span class="swatch dnp-swatch"></span>(미실장) CAP 1uF</td><td>-</td><td>C5</td><td>1</td><td>Top</td></tr>
+<tr class="bom-row dnp" data-group="(미실장) CAP 10nF" data-des="C6"><td><span class="swatch dnp-swatch"></span>(미실장) CAP 10nF</td><td>-</td><td>C6</td><td>1</td><td>Top</td></tr>
+<tr class="bom-row dnp" data-group="(미실장) RES 1K" data-des="R5"><td><span class="swatch dnp-swatch"></span>(미실장) RES 1K</td><td>-</td><td>R5</td><td>1</td><td>Top</td></tr>
+<tr class="bom-row dnp" data-group="(미실장) RES 10K" data-des="R6,R7"><td><span class="swatch dnp-swatch"></span>(미실장) RES 10K</td><td>-</td><td>R6,R7</td><td>2</td><td>Top</td></tr>
+<tr class="bom-row dnp" data-group="배터리 클립 (스루홀)" data-des="BT1,BT2"><td><span class="swatch dnp-swatch"></span>배터리 클립 (스루홀)</td><td>1087-1/1087-2</td><td>BT1,BT2</td><td>2</td><td>Bottom/Top</td></tr>
+    </tbody>
+  </table>
+</div>
+<script>
+let selected = null;
+function clearSel() {
+  document.querySelectorAll('.bom-row.selected').forEach(r => r.classList.remove('selected'));
+  document.querySelectorAll('.marker.dim').forEach(m => m.classList.remove('dim'));
+  document.querySelectorAll('.marker.hi').forEach(m => m.classList.remove('hi'));
+}
+function selectGroup(group) {
+  if (selected === group) { clearSel(); selected = null; return; }
+  clearSel();
+  selected = group;
+  document.querySelectorAll('.bom-row').forEach(r => {
+    if (r.dataset.group === group) r.classList.add('selected');
+  });
+  document.querySelectorAll('.marker').forEach(m => {
+    if (m.dataset.group === group) m.classList.add('hi'); else m.classList.add('dim');
+  });
+}
+document.querySelectorAll('.bom-row').forEach(row => {
+  row.addEventListener('click', () => selectGroup(row.dataset.group));
+});
+document.querySelectorAll('.marker').forEach(m => {
+  m.addEventListener('click', () => selectGroup(m.dataset.group));
+});
+</script>
+</body>
+</html>
