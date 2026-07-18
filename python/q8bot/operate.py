@@ -47,6 +47,8 @@ def main():
     # Parse command-line arguments
     parser = argparse.ArgumentParser(description='Q8bot control script')
     parser.add_argument('--debug', action='store_true', help='Enable debug logging')
+    # 로봇 없이 mock_robot(127.0.0.1)으로 통합 테스트할 때 사용
+    parser.add_argument('--ip', default=None, help='Robot IP override (e.g. 127.0.0.1 for mock_robot)')
     args = parser.parse_args()
 
     # Initialize logger
@@ -87,7 +89,7 @@ def main():
 
     # Initialize kinamatics solver and Q8bot UDP link
     leg = k_solver(CENTER_DIST, L1, L2, L1, L2)
-    q8 = q8_udp()
+    q8 = q8_udp(ip=args.ip) if args.ip else q8_udp()
     q8.enable_torque()
 
     # Initialize GaitManager

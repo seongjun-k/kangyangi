@@ -122,3 +122,16 @@ class MockRobot:
         '''viz/검사용 상태 스냅샷 (스레드 세이프).'''
         with self._lock:
             return list(self.joint_ticks), self.torque_on, self.packet_count, self.checksum_errors
+
+
+if __name__ == "__main__":
+    # 단독 실행: operate.py --ip 127.0.0.1 통합 테스트용 가짜 로봇
+    import time
+    robot = MockRobot()
+    robot.start()
+    print("[mock_robot] listening on 0.0.0.0:8888 (Ctrl+C to stop)")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        robot.stop()
