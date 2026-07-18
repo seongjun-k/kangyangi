@@ -2,6 +2,7 @@
 #include <WiFi.h>
 #include <AsyncUDP.h>
 #include <esp_camera.h>
+#include <esp_wifi.h>
 #include <Dynamixel2Arduino.h>
 
 #include "q8Dynamixel.h"
@@ -38,6 +39,8 @@ q8Dynamixel       q8(q8dxl);
 AsyncUDP          udp;
 WiFiServer        camServer(80);
 
+// cameraReady/camServer: 카메라 전용 태스크(core 0)에서만 접근 — setup()에서 초기화 후
+// cameraTask 시작, loop()/motor 경로는 더 이상 참조하지 않는다.
 bool cameraReady = false;
 
 // 안전 정지 상태 (500ms 무수신 시 torque off 1회)
@@ -60,19 +63,23 @@ static const int32_t TICK_MAX = 8191;
 // 직접 접근하면 loop() 태스크와 경합한다. 콜백은 검증/파싱만 하고 명령을 큐에
 // 넣으며, 실제 Dynamixel UART 접근은 loop() 태스크 한 곳에서만 수행한다
 // (원본 q8bot의 단일 태스크 소유 방식과 동일).
+//
+// 모션(motionQueue)과 커맨드(cmdQueue)를 분리한다:
+// - motionQueue: 크기 1 + xQueueOverwrite. 모션은 "최신 자세"만 의미가 있으므로
+//   오래된 목표를 큐에 쌓아두면 처리 지연이 누적된다 — 항상 최신 값으로 덮어쓴다.
+// - cmdQueue: torque on/off, jump는 유실되면 안 되는 이벤트이므로 기존 FIFO(크기 4)
+//   유지. processDxlQueue는 cmdQueue를 먼저 소비하고, 그다음 motionQueue를 소비한다.
 // ============================================================================
-enum DxlCmdType : uint8_t {
-  DXL_CMD_MOTION = 0,
-  DXL_CMD_CONTROL = 1,
+struct MotionCmd {
+  int32_t ticks[8];
 };
 
-struct DxlCommand {
-  uint8_t type;       // DxlCmdType
-  int32_t ticks[8];   // type == MOTION일 때 사용
-  uint8_t ctrlCmd;    // type == CONTROL일 때 사용 (0=disable,1=enable,4=jump)
+struct ControlCmd {
+  uint8_t ctrlCmd;  // 0=disable,1=enable,4=jump
 };
 
-static QueueHandle_t dxlQueue = NULL;
+static QueueHandle_t motionQueue = NULL;
+static QueueHandle_t cmdQueue = NULL;
 
 // ============================================================================
 // UDP 패킷 처리 (docs/protocol.md 참조)
@@ -90,28 +97,26 @@ void handleMotionPacket(const uint8_t* data) {
   haveSeq = true;
   lastSeq = seq;
 
-  DxlCommand dxlCmd;
-  dxlCmd.type = DXL_CMD_MOTION;
+  MotionCmd motionCmd;
   for (int i = 0; i < 8; i++) {
     int32_t v = data[2 + i * 2] | (data[2 + i * 2 + 1] << 8);
     if (v < TICK_MIN || v > TICK_MAX) return;  // 범위 밖 값이 하나라도 있으면 패킷 전체 폐기
-    dxlCmd.ticks[i] = v;
+    motionCmd.ticks[i] = v;
   }
 
   lastValidPacketMs = millis();
-  xQueueSend(dxlQueue, &dxlCmd, 0);  // 큐가 가득 차면 드롭(non-blocking, 콜백을 막지 않음)
+  xQueueOverwrite(motionQueue, &motionCmd);  // 항상 최신 자세만 유지(크기 1 큐)
 }
 
 void handleCommandPacket(const uint8_t* data) {
   uint8_t cmd = data[1];
   if (cmd != 0 && cmd != 1 && cmd != 4) return;  // 알 수 없는 cmd는 폐기
 
-  DxlCommand dxlCmd;
-  dxlCmd.type = DXL_CMD_CONTROL;
-  dxlCmd.ctrlCmd = cmd;
+  ControlCmd ctrlCmd;
+  ctrlCmd.ctrlCmd = cmd;
 
   lastValidPacketMs = millis();
-  xQueueSend(dxlQueue, &dxlCmd, 0);
+  xQueueSend(cmdQueue, &ctrlCmd, 0);  // 큐가 가득 차면 드롭(non-blocking, 콜백을 막지 않음)
 }
 
 void onUdpPacket(AsyncUDPPacket packet) {
@@ -140,27 +145,25 @@ void checkSafety() {
 }
 
 // ============================================================================
-// dxlQueue 소비 — 모든 Dynamixel UART 접근은 이 함수(loop 태스크)에서만 수행
+// cmdQueue/motionQueue 소비 — 모든 Dynamixel UART 접근은 이 함수(loop 태스크)에서만
+// 수행한다. cmdQueue(유실 불가 이벤트)를 먼저 소비하고, 없으면 motionQueue(최신
+// 자세)를 소비한다. 반환값은 뭔가 처리했는지 여부(loop의 idle 판단용).
 // ============================================================================
-void processDxlQueue() {
-  DxlCommand dxlCmd;
-  if (xQueueReceive(dxlQueue, &dxlCmd, 0) != pdTRUE) return;
+bool processDxlQueue() {
+  ControlCmd ctrlCmd;
+  if (xQueueReceive(cmdQueue, &ctrlCmd, 0) == pdTRUE) {
+    // 안전 정지로 torque off된 상태에서 유효 명령 수신 시 재활성화 후 적용
+    // (단, 명령 자체가 torque off면 재활성화 펄스 없이 tripped 해제만)
+    if (torqueSafetyTripped && ctrlCmd.ctrlCmd == 0) {
+      torqueSafetyTripped = false;  // 이미 torque off 상태 -> 명령 결과와 동일
+      return true;
+    }
+    if (torqueSafetyTripped) {
+      q8.enableTorque();
+      torqueSafetyTripped = false;
+    }
 
-  // 안전 정지로 torque off된 상태에서 유효 명령 수신 시 재활성화 후 적용
-  // (단, 명령 자체가 torque off면 재활성화 펄스 없이 tripped 해제만)
-  if (torqueSafetyTripped && dxlCmd.type == DXL_CMD_CONTROL && dxlCmd.ctrlCmd == 0) {
-    torqueSafetyTripped = false;  // 이미 torque off 상태 -> 명령 결과와 동일
-    return;
-  }
-  if (torqueSafetyTripped) {
-    q8.enableTorque();
-    torqueSafetyTripped = false;
-  }
-
-  if (dxlCmd.type == DXL_CMD_MOTION) {
-    q8.bulkWrite(dxlCmd.ticks);
-  } else {
-    switch (dxlCmd.ctrlCmd) {
+    switch (ctrlCmd.ctrlCmd) {
       case 0: q8.disableTorque(); break;
       case 1: q8.enableTorque(); break;
       case 4:
@@ -174,7 +177,20 @@ void processDxlQueue() {
         break;
       default: break;
     }
+    return true;
   }
+
+  MotionCmd motionCmd;
+  if (xQueueReceive(motionQueue, &motionCmd, 0) == pdTRUE) {
+    if (torqueSafetyTripped) {
+      q8.enableTorque();
+      torqueSafetyTripped = false;
+    }
+    q8.bulkWrite(motionCmd.ticks);
+    return true;
+  }
+
+  return false;
 }
 
 // ============================================================================
@@ -204,9 +220,9 @@ bool cameraInit() {
   config.pixel_format = PIXFORMAT_JPEG;
   config.frame_size = FRAMESIZE_QVGA;
   config.jpeg_quality = 12;
-  config.fb_count = 1;
+  config.fb_count = 2;                       // PSRAM 여유 큼 — 캡처/전송 병렬화로 fps 개선
   config.fb_location = CAMERA_FB_IN_PSRAM;
-  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+  config.grab_mode = CAMERA_GRAB_LATEST;     // 오래된 프레임 대신 항상 최신 프레임 사용
 
   return esp_camera_init(&config) == ESP_OK;
 }
@@ -222,9 +238,10 @@ void handleCameraClient() {
   client.println();
 
   while (client.connected()) {
-    checkSafety();      // 스트리밍 중에도 안전 정지 감시 유지
-    processDxlQueue();  // 스트리밍 루프가 loop()를 점유하므로 여기서도 모션 큐 소비(미소비 시 로봇 고정)
-
+    // checkSafety/processDxlQueue 호출 없음: 카메라는 전용 태스크(core 0)로 분리되어
+    // 더 이상 loop()를 점유하지 않는다 — 모션/안전 정지는 loop 태스크(core 1)가
+    // 독립적으로 최대 속도로 처리한다. Dynamixel UART 접근은 여전히 loop 태스크
+    // 한 곳(processDxlQueue)에서만 이루어진다.
     camera_fb_t* fb = esp_camera_fb_get();
     if (!fb) break;
 
@@ -240,6 +257,17 @@ void handleCameraClient() {
   client.stop();
 }
 
+// 카메라 전용 FreeRTOS 태스크(core 0, WiFi/lwIP와 같은 코어) — 모션 처리를
+// 담당하는 loop() 태스크(core 1, Arduino 기본 태스크)와 분리해 스트리밍이
+// 모션 지연에 영향을 주지 않게 한다. 우선순위를 낮게 두어(tskIDLE_PRIORITY+1)
+// WiFi/lwIP 태스크를 방해하지 않는다.
+void cameraTask(void* param) {
+  for (;;) {
+    handleCameraClient();
+    vTaskDelay(1);  // 접속 클라이언트 없을 때 바쁜 대기 방지, core 0 다른 태스크에 양보
+  }
+}
+
 // ============================================================================
 void setup() {
   Serial.begin(115200);
@@ -250,14 +278,16 @@ void setup() {
 
   lastValidPacketMs = millis();
 
-  dxlQueue = xQueueCreate(4, sizeof(DxlCommand));
-  if (dxlQueue == NULL) {
-    Serial.println("[RTOS] Failed to create dxlQueue - halting");
+  motionQueue = xQueueCreate(1, sizeof(MotionCmd));
+  cmdQueue = xQueueCreate(4, sizeof(ControlCmd));
+  if (motionQueue == NULL || cmdQueue == NULL) {
+    Serial.println("[RTOS] Failed to create dxl queues - halting");
     while (1) { delay(1000); }  // Dynamixel 직렬화 불가 상태로 동작 금지
   }
 
   WiFi.mode(WIFI_AP);
   WiFi.softAP("kangyangi", "kangyangi");
+  esp_wifi_set_ps(WIFI_PS_NONE);  // softAP 절전 해제 — UDP 모션 패킷 지연/지터 감소
 
   udp.listen(8888);
   udp.onPacket(onUdpPacket);
@@ -265,6 +295,9 @@ void setup() {
   cameraReady = cameraInit();
   if (cameraReady) {
     camServer.begin();
+    // core 0(WiFi/lwIP와 같은 코어)에 낮은 우선순위로 배치 — core 1의 모션 루프와
+    // 자원을 다투지 않는다.
+    xTaskCreatePinnedToCore(cameraTask, "camera", 4096, NULL, tskIDLE_PRIORITY + 1, NULL, 0);
   } else {
     Serial.println("[CAM] init failed - camera disabled, motor control continues");
   }
@@ -272,6 +305,6 @@ void setup() {
 
 void loop() {
   checkSafety();
-  processDxlQueue();
-  handleCameraClient();
+  bool processed = processDxlQueue();
+  if (!processed) delay(1);  // 큐가 빌 때만 idle 태스크에 양보(와치독 여유), 있으면 최대 속도 유지
 }
