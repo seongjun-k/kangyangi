@@ -297,7 +297,8 @@ void setup() {
     camServer.begin();
     // core 0(WiFi/lwIP와 같은 코어)에 낮은 우선순위로 배치 — core 1의 모션 루프와
     // 자원을 다투지 않는다.
-    xTaskCreatePinnedToCore(cameraTask, "camera", 4096, NULL, tskIDLE_PRIORITY + 1, NULL, 0);
+    // 스택 8192: WiFiClient/printf 경로 포함 시 4096은 여유 불확실 — esp32 카메라 예제 관례값
+    xTaskCreatePinnedToCore(cameraTask, "camera", 8192, NULL, tskIDLE_PRIORITY + 1, NULL, 0);
   } else {
     Serial.println("[CAM] init failed - camera disabled, motor control continues");
   }
