@@ -1,4 +1,4 @@
-# Gangyangi (강양이)
+# Kangyangi (강양이)
 
 Quadruped robot based on [q8bot](https://github.com/EricYufengWu/q8bot), ported to XIAO ESP32-S3 Sense.
 
