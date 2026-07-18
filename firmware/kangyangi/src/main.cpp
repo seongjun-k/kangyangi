@@ -4,6 +4,7 @@
 #include <esp_camera.h>
 #include <esp_wifi.h>
 #include <Dynamixel2Arduino.h>
+#include <I2S.h>  // arduino-esp32 3.x core: driver/i2s.h를 감싼 I2SClass(PDM RX 지원)
 
 #include "q8Dynamixel.h"
 #include "pinMapping.h"
@@ -32,16 +33,28 @@
 #define CAM_PCLK_PIN    13
 
 // ============================================================================
+// XIAO ESP32S3 Sense 온보드 PDM 마이크 핀 (Sense 확장보드, Seeed 공식 문서 값)
+// GPIO41=DATA, GPIO42=CLK — 카메라 핀(10-18,38-40,47,48)과 Dynamixel D6/D7(=43/44)
+// 어느 것과도 겹치지 않음.
+// ============================================================================
+#define MIC_DATA_PIN    41
+#define MIC_CLK_PIN     42
+
+// ============================================================================
 // 전역 객체
 // ============================================================================
 Dynamixel2Arduino q8dxl(Serial1, DXL_DIR_PIN);
 q8Dynamixel       q8(q8dxl);
 AsyncUDP          udp;
 WiFiServer        camServer(80);
+WiFiServer        micServer(81);
 
 // cameraReady/camServer: 카메라 전용 태스크(core 0)에서만 접근 — setup()에서 초기화 후
 // cameraTask 시작, loop()/motor 경로는 더 이상 참조하지 않는다.
 bool cameraReady = false;
+
+// micReady/micServer/I2S: 마이크 전용 태스크(core 0)에서만 접근 — cameraReady와 동일 패턴.
+bool micReady = false;
 
 // 안전 정지 상태 (500ms 무수신 시 torque off 1회)
 // lastValidPacketMs: WiFi 콜백 태스크(쓰기)와 loop 태스크(읽기)가 공유 -> volatile 유지
@@ -269,6 +282,52 @@ void cameraTask(void* param) {
 }
 
 // ============================================================================
+// 마이크 오디오 스트리밍 (raw PCM 16kHz/16bit/mono, 포트 81)
+// ============================================================================
+// DMA 버퍼 512샘플 x 16bit x 2버퍼 -> 오디오는 16kHz*2byte=32KB/s로 카메라(수백KB/s
+// JPEG) 대비 대역폭이 미미하다. 버퍼 크기를 키울 이유가 없어 기본값 근처로 둔다.
+static const int MIC_SAMPLE_RATE = 16000;
+static const int MIC_DMA_BUF_LEN = 512;
+
+bool micInit() {
+  I2S.setAllPins(MIC_CLK_PIN, -1, MIC_DATA_PIN, -1, MIC_DATA_PIN);
+  I2S.setBufferSize(MIC_DMA_BUF_LEN);
+  return I2S.begin(PDM_MONO_MODE, MIC_SAMPLE_RATE, 16) == 1;
+}
+
+void handleMicClient() {
+  if (!micReady) return;
+
+  WiFiClient client = micServer.available();
+  if (!client) return;  // 클라이언트 없음 -> I2S.read 호출 자체를 하지 않아 CPU/버스 낭비 없음
+
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-Type: audio/L16;rate=16000;channels=1");
+  client.println();
+
+  uint8_t buf[MIC_DMA_BUF_LEN * 2];  // 16bit 샘플 -> 2byte
+  while (client.connected()) {
+    // checkSafety/processDxlQueue 호출 없음: 카메라 태스크와 동일하게 모션 처리는
+    // loop() 태스크(core 1)가 독립적으로 담당한다. client.write가 블로킹돼도
+    // 영향받는 것은 이 태스크(core 0)뿐이다.
+    int n = I2S.read(buf, sizeof(buf));
+    if (n <= 0) continue;
+    client.write(buf, n);
+    if (!client.connected()) break;
+  }
+  client.stop();
+}
+
+// 마이크 전용 FreeRTOS 태스크(core 0) — cameraTask와 동일한 패턴으로 core 1의
+// 모션 루프와 분리한다. 우선순위 낮게(tskIDLE_PRIORITY+1)두어 WiFi/lwIP를 방해하지 않는다.
+void micTask(void* param) {
+  for (;;) {
+    handleMicClient();
+    vTaskDelay(1);  // 접속 클라이언트 없을 때 바쁜 대기 방지, core 0 다른 태스크에 양보
+  }
+}
+
+// ============================================================================
 void setup() {
   Serial.begin(115200);
 
@@ -301,6 +360,14 @@ void setup() {
     xTaskCreatePinnedToCore(cameraTask, "camera", 8192, NULL, tskIDLE_PRIORITY + 1, NULL, 0);
   } else {
     Serial.println("[CAM] init failed - camera disabled, motor control continues");
+  }
+
+  micReady = micInit();
+  if (micReady) {
+    micServer.begin();
+    xTaskCreatePinnedToCore(micTask, "mic", 4096, NULL, tskIDLE_PRIORITY + 1, NULL, 0);
+  } else {
+    Serial.println("[MIC] init failed - mic disabled, motor/camera control continues");
   }
 }
 

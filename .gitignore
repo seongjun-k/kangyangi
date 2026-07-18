@@ -2,3 +2,4 @@ CLAUDE.md
 .claude/
 .pio/
 __pycache__/
+python/q8bot/models/

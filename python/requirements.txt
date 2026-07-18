@@ -6,3 +6,6 @@ scipy>=1.11.4
 
 # 로봇 제어 UI는 웹(web_operate.py, 표준 라이브러리 http.server)로 통일 — pygame 불필요.
 # 통신은 표준 라이브러리 socket(UDP) 사용 — pyserial 불필요.
+
+# 음성인식(푸시투토크, voice.py) — 한국어 오프라인 STT
+vosk>=0.3.45

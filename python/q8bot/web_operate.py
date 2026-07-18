@@ -10,6 +10,7 @@ import argparse
 import json
 import threading
 import time
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from helpers import Q8Logger
 from gait_manager import GaitManager, GAITS
 from routine_generator import show_range, greet
 from control_config import JOYSTICK_CONFIG, apply_deadzone, get_joystick_direction
+import voice
 
 CENTER_DIST = 19.5
 L1 = 25
@@ -26,6 +28,76 @@ L2 = 40
 
 SPEED = 200  # 제어 루프 tick rate(Hz), operate.py와 동일
 HEARTBEAT_TIMEOUT = 0.5  # 하트비트 끊김 판정(펌웨어 500ms 안전정지와 일관)
+
+VOICE_PORT = 81  # 로봇 오디오 스트림 포트(카메라 MJPEG는 기본 80번 포트)
+VOICE_SAMPLE_RATE = 16000
+VOICE_MAX_SECONDS = 5  # 최대 녹음 길이
+VOICE_MOVE_DURATION = 2.0  # 이동 명령 유지 시간(음성은 순간 명령이므로)
+
+# 부분 일치 명령 테이블: 인식 텍스트에 키워드가 하나라도 포함되면 매칭.
+VOICE_COMMANDS = [
+    (("앞으로", "가", "전진"), "forward"),
+    (("뒤로", "후진"), "backward"),
+    (("왼쪽",), "left"),
+    (("오른쪽",), "right"),
+    (("멈춰", "정지"), "stop"),
+    (("점프",), "jump"),
+    (("인사",), "greet"),
+    (("앉아", "쉬어"), "torque_off"),
+    (("일어나", "준비"), "torque_on"),
+]
+
+
+def match_voice_command(text):
+    for keywords, action in VOICE_COMMANDS:
+        if any(kw in text for kw in keywords):
+            return action
+    return None
+
+
+class VoiceState:
+    '''음성 녹음/인식 상태(HTTP 스레드 <-> 녹음 스레드 공유).'''
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self.recording = False
+        self.buffer = bytearray()
+        self.last_text = ""
+        self.last_command = None
+        self.mic_connected = None  # None=미시도, True/False=최근 연결 결과
+        self.stop_event = None
+        self.thread = None
+
+    def snapshot(self):
+        with self._lock:
+            return {
+                "voice_recording": self.recording,
+                "voice_mic_connected": self.mic_connected,
+                "voice_text": self.last_text,
+                "voice_command": self.last_command,
+            }
+
+
+def _record_voice_audio(voice_state, robot_ip, stop_event):
+    '''로봇 :81 raw PCM 스트림에서 최대 VOICE_MAX_SECONDS초 버퍼링.'''
+    url = f"http://{robot_ip}:{VOICE_PORT}/"
+    try:
+        resp = urllib.request.urlopen(url, timeout=3)
+    except OSError:
+        voice_state.mic_connected = False
+        return
+    voice_state.mic_connected = True
+    max_bytes = VOICE_SAMPLE_RATE * 2 * VOICE_MAX_SECONDS  # s16le mono
+    try:
+        while not stop_event.is_set() and len(voice_state.buffer) < max_bytes:
+            chunk = resp.read(4096)
+            if not chunk:
+                break
+            voice_state.buffer.extend(chunk)
+    except OSError:
+        pass
+    finally:
+        resp.close()
 
 WEB_DIR = Path(__file__).parent / "web"
 
@@ -115,9 +187,10 @@ class KeyState:
 class RobotState:
     '''SSE 상태 push용 공유 상태(제어 스레드가 갱신, HTTP 스레드가 읽음).'''
 
-    def __init__(self, q8, gait_manager):
+    def __init__(self, q8, gait_manager, voice_state):
         self.q8 = q8
         self.gait_manager = gait_manager
+        self.voice_state = voice_state
         self._lock = threading.Lock()
         self._send_count = 0
         self._rate = 0.0
@@ -134,12 +207,49 @@ class RobotState:
     def snapshot(self):
         with self._lock:
             rate = self._rate
-        return {
+        data = {
             "torque_on": self.q8.torque_on,
             "gait": self.gait_manager.current_gait,
             "seq": self.q8.seq,
             "rate_hz": round(rate, 1),
         }
+        data.update(self.voice_state.snapshot())
+        return data
+
+
+def execute_voice_command(action, q8, leg, pos_ref, key_state):
+    '''인식된 명령 실행. 이동 명령은 key_state에 순간적으로 키를 주입해
+    control_loop의 기존 보행 로직을 그대로 재사용한다(VOICE_MOVE_DURATION초 후 자동 정지).'''
+
+    def _move_for(key):
+        def _run():
+            key_state.update([key])
+            time.sleep(VOICE_MOVE_DURATION)
+            key_state.update([])
+        threading.Thread(target=_run, daemon=True).start()
+
+    move_keys = {"forward": "w", "backward": "s", "left": "a", "right": "d"}
+    if action in move_keys:
+        _move_for(move_keys[action])
+    elif action == "stop":
+        key_state.update([])
+    elif action == "jump":
+        q8.send_jump()
+
+        def _settle():
+            time.sleep(5)
+            q1, q2, _ = leg.ik_solve(pos_ref[0], pos_ref[1], True, 1)
+            q8.move_mirror([q1, q2], 500)
+        threading.Thread(target=_settle, daemon=True).start()
+    elif action == "greet":
+        greet(q8)
+        q1, q2, _ = leg.ik_solve(pos_ref[0], pos_ref[1], True, 1)
+        q8.move_mirror([q1, q2], 1000)
+    elif action == "torque_off":
+        q8.disable_torque()
+    elif action == "torque_on":
+        q8.enable_torque()
+    # action이 None(무매칭)이면 아무 동작도 하지 않음
 
 
 def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_ref, log, stop_event):
@@ -222,7 +332,7 @@ def status_stream_body(robot_state):
         yield f"data: {data}\n\n".encode()
 
 
-def make_handler(key_state, robot_state, q8, leg, pos_ref, robot_ip):
+def make_handler(key_state, robot_state, q8, leg, pos_ref, robot_ip, voice_state):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
             pass  # 표준 stderr 접근 로그 억제(콘솔 소음 방지)
@@ -245,6 +355,8 @@ def make_handler(key_state, robot_state, q8, leg, pos_ref, robot_ip):
                 self.wfile.write(index)
             elif self.path == "/config":
                 self._send_json({"robot_ip": robot_ip})
+            elif self.path == "/voice/status":
+                self._send_json(voice_state.snapshot())
             elif self.path == "/status":
                 self.send_response(200)
                 self.send_header("Content-Type", "text/event-stream")
@@ -293,6 +405,37 @@ def make_handler(key_state, robot_state, q8, leg, pos_ref, robot_ip):
                     self._send_json({"error": "unknown cmd"}, 400)
                     return
                 self._send_json({"ok": True})
+            elif self.path == "/voice":
+                action = payload.get("action")
+                if action == "start":
+                    if voice_state.recording:
+                        self._send_json({"error": "already recording"}, 400)
+                        return
+                    voice_state.buffer = bytearray()
+                    voice_state.stop_event = threading.Event()
+                    voice_state.recording = True
+                    voice_state.thread = threading.Thread(
+                        target=_record_voice_audio,
+                        args=(voice_state, robot_ip, voice_state.stop_event),
+                        daemon=True,
+                    )
+                    voice_state.thread.start()
+                    self._send_json({"ok": True})
+                elif action == "stop":
+                    if not voice_state.recording:
+                        self._send_json({"error": "not recording"}, 400)
+                        return
+                    voice_state.stop_event.set()
+                    voice_state.thread.join(timeout=1)
+                    voice_state.recording = False
+                    text = voice.recognize(bytes(voice_state.buffer))
+                    command = match_voice_command(text) if text else None
+                    voice_state.last_text = text
+                    voice_state.last_command = command
+                    execute_voice_command(command, q8, leg, pos_ref, key_state)
+                    self._send_json({"ok": True, "text": text, "command": command})
+                else:
+                    self._send_json({"error": "unknown action"}, 400)
             else:
                 self.send_error(404)
 
@@ -327,7 +470,8 @@ def main():
     time.sleep(2)
 
     key_state = KeyState()
-    robot_state = RobotState(q8, gait_manager)
+    voice_state = VoiceState()
+    robot_state = RobotState(q8, gait_manager, voice_state)
     stop_event = threading.Event()
 
     ctrl_thread = threading.Thread(
@@ -337,7 +481,7 @@ def main():
     )
     ctrl_thread.start()
 
-    handler = make_handler(key_state, robot_state, q8, leg, pos_ref, q8.ip)
+    handler = make_handler(key_state, robot_state, q8, leg, pos_ref, q8.ip, voice_state)
     server = ThreadingHTTPServer(("0.0.0.0", args.port), handler)
     log.info(f"Web UI: http://0.0.0.0:{args.port}/  (robot={q8.ip}:{q8.port})")
 

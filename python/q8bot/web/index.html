@@ -68,6 +68,9 @@
     <div class="stat-row"><span>Seq</span><span id="statSeq">-</span></div>
     <div class="stat-row"><span>Send rate</span><span id="statRate">-</span></div>
     <div class="stat-row"><span>Gamepad</span><span id="gpStatus">-</span></div>
+    <div class="stat-row"><span>Mic</span><span id="micStatus">-</span></div>
+    <div class="stat-row"><span>음성 인식</span><span id="voiceText">-</span></div>
+    <div class="stat-row"><span>음성 명령</span><span id="voiceCmd">-</span></div>
     <div class="buttons">
       <button id="btnTorqueOn">Torque ON</button>
       <button id="btnTorqueOff">Torque OFF</button>
@@ -79,7 +82,8 @@
   Move: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>&nbsp; Turn: <kbd>Q</kbd>(fwd-left) <kbd>E</kbd>(fwd-right)&nbsp;
   <kbd>H</kbd> Greet &nbsp;<kbd>G</kbd> Switch gait &nbsp;<kbd>J</kbd> Jump &nbsp;<kbd>R</kbd> Reset &nbsp;<kbd>C</kbd> Show range
   &nbsp;— 페이지에 포커스가 있어야 키 입력이 인식됩니다.<br>
-  Xbox 컨트롤러: 왼쪽 스틱으로 12방향 아날로그 보행, Y=Greet A=Switch gait X=Jump LB=Reset (브라우저 표준 게임패드 매핑, 버튼을 한 번 눌러야 연결이 인식됩니다).
+  Xbox 컨트롤러: 왼쪽 스틱으로 12방향 아날로그 보행, Y=Greet A=Switch gait X=Jump LB=Reset (브라우저 표준 게임패드 매핑, 버튼을 한 번 눌러야 연결이 인식됩니다).<br>
+  음성(푸시투토크): <kbd>V</kbd> 키를 누르는 동안 녹음, 떼면 인식/실행 (또는 게임패드 RB 버튼).
 </footer>
 <script>
 // 로봇 카메라 IP 조회 후 <img> 소스 설정 (스트리밍은 로봇이 직접 제공, 프록시 없음)
@@ -99,6 +103,7 @@ const pressed = new Set();
 // 아날로그 해석을 담당하므로(web_operate.py get_joystick_direction) 여기선 원시값만 전송.
 let gpAxes = null;
 let gpButtons = [];
+let gpRBPrev = false; // RB(버튼 5) 상승/하강 에지 감지용(Gamepad API는 이벤트가 없어 폴링 필요)
 function pollGamepad() {
   const pads = navigator.getGamepads ? navigator.getGamepads() : [];
   const gp = pads[0];
@@ -108,6 +113,10 @@ function pollGamepad() {
     gpButtons = [];
     gp.buttons.forEach((b, i) => { if (b.pressed) gpButtons.push(i); });
     status.textContent = 'connected';
+    const rb = gp.buttons[5] && gp.buttons[5].pressed;
+    if (rb && !gpRBPrev) voiceStart();
+    if (!rb && gpRBPrev) voiceStop();
+    gpRBPrev = rb;
   } else {
     gpAxes = null;
     gpButtons = [];
@@ -116,6 +125,30 @@ function pollGamepad() {
   requestAnimationFrame(pollGamepad);
 }
 requestAnimationFrame(pollGamepad);
+
+// 음성 푸시투토크: V 키 또는 게임패드 RB를 누르는 동안 녹음, 떼면 인식/실행.
+let voiceActive = false;
+function voiceStart() {
+  if (voiceActive) return;
+  voiceActive = true;
+  document.getElementById('voiceText').textContent = '(듣는 중...)';
+  fetch('/voice', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'start' }),
+  }).catch(() => {});
+}
+function voiceStop() {
+  if (!voiceActive) return;
+  voiceActive = false;
+  document.getElementById('voiceText').textContent = '(인식 중...)';
+  fetch('/voice', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'stop' }),
+  }).then(r => r.json()).then(d => {
+    document.getElementById('voiceText').textContent = d.text || '(무음)';
+    document.getElementById('voiceCmd').textContent = d.command || (d.text ? '무시됨' : '-');
+  }).catch(() => {});
+}
 
 function sendKeys() {
   const body = { keys: Array.from(pressed) };
@@ -129,10 +162,12 @@ function sendKeys() {
 }
 window.addEventListener('keydown', e => {
   const k = e.key.toLowerCase();
+  if (k === 'v') { if (!e.repeat) voiceStart(); return; }
   if (!pressed.has(k)) { pressed.add(k); sendKeys(); }
 });
 window.addEventListener('keyup', e => {
   const k = e.key.toLowerCase();
+  if (k === 'v') { voiceStop(); return; }
   if (pressed.delete(k)) sendKeys();
 });
 window.addEventListener('blur', () => { pressed.clear(); sendKeys(); });
@@ -148,6 +183,13 @@ es.onmessage = ev => {
   document.getElementById('statRate').textContent = `${s.rate_hz} Hz`;
   document.getElementById('btnTorqueOn').classList.toggle('active', s.torque_on);
   document.getElementById('btnTorqueOff').classList.toggle('active', !s.torque_on);
+  const mic = document.getElementById('micStatus');
+  mic.textContent = s.voice_mic_connected === false ? '음성: 로봇 마이크 연결 안 됨'
+    : s.voice_mic_connected ? '연결됨' : '-';
+  if (!voiceActive) {
+    document.getElementById('voiceText').textContent = s.voice_text || '-';
+    document.getElementById('voiceCmd').textContent = s.voice_command || (s.voice_text ? '무시됨' : '-');
+  }
 };
 
 function sendCmd(cmd) {
