@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kangyangi Control</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0f0f11; color: #eee;
+    display: flex; flex-direction: column; height: 100vh;
+  }
+  header { padding: 10px 16px; font-weight: 600; border-bottom: 1px solid #2a2a2e; }
+  main {
+    flex: 1; display: flex; gap: 12px; padding: 12px; min-height: 0;
+  }
+  #camPane {
+    flex: 3; background: #000; border-radius: 8px; position: relative;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+  }
+  #camImg { width: 100%; height: 100%; object-fit: contain; }
+  #noSignal {
+    position: absolute; inset: 0; display: none;
+    align-items: center; justify-content: center;
+    color: #888; font-size: 1.5em; letter-spacing: 0.1em;
+    background: #000;
+  }
+  #camPane.no-signal #noSignal { display: flex; }
+  #camPane.no-signal #camImg { display: none; }
+  #panel {
+    flex: 2; background: #1a1a1d; border-radius: 8px; padding: 16px;
+    display: flex; flex-direction: column; gap: 10px; overflow-y: auto;
+  }
+  #panel h2 { margin: 0 0 4px; font-size: 1em; color: #999; font-weight: 500; }
+  .stat-row { display: flex; justify-content: space-between; font-size: 0.95em; padding: 4px 0; border-bottom: 1px solid #262629; }
+  .stat-row span:last-child { color: #7fd0ff; font-variant-numeric: tabular-nums; }
+  .buttons { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  button {
+    background: #2a2a30; color: #eee; border: 1px solid #3a3a40; border-radius: 6px;
+    padding: 8px 14px; cursor: pointer; font-size: 0.9em;
+  }
+  button:hover { background: #35353c; }
+  button.active { background: #2d6a4f; border-color: #40916c; }
+  footer {
+    padding: 10px 16px; border-top: 1px solid #2a2a2e; font-size: 0.85em; color: #aaa;
+    line-height: 1.6;
+  }
+  kbd {
+    background: #2a2a30; border: 1px solid #444; border-radius: 4px;
+    padding: 1px 6px; font-family: monospace;
+  }
+</style>
+</head>
+<body>
+<header>Kangyangi Web Control</header>
+<main>
+  <div id="camPane">
+    <img id="camImg" alt="camera">
+    <div id="noSignal">NO SIGNAL</div>
+  </div>
+  <div id="panel">
+    <h2>Status</h2>
+    <div class="stat-row"><span>Torque</span><span id="statTorque">-</span></div>
+    <div class="stat-row"><span>Gait</span><span id="statGait">-</span></div>
+    <div class="stat-row"><span>Seq</span><span id="statSeq">-</span></div>
+    <div class="stat-row"><span>Send rate</span><span id="statRate">-</span></div>
+    <div class="buttons">
+      <button id="btnTorqueOn">Torque ON</button>
+      <button id="btnTorqueOff">Torque OFF</button>
+      <button id="btnJump">Jump</button>
+    </div>
+  </div>
+</main>
+<footer>
+  Move: <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>&nbsp; Turn: <kbd>Q</kbd>(fwd-left) <kbd>E</kbd>(fwd-right)&nbsp;
+  <kbd>H</kbd> Greet &nbsp;<kbd>G</kbd> Switch gait &nbsp;<kbd>J</kbd> Jump &nbsp;<kbd>R</kbd> Reset &nbsp;<kbd>C</kbd> Show range
+  &nbsp;— 페이지에 포커스가 있어야 키 입력이 인식됩니다.
+</footer>
+<script>
+// 로봇 카메라 IP 조회 후 <img> 소스 설정 (스트리밍은 로봇이 직접 제공, 프록시 없음)
+fetch('/config').then(r => r.json()).then(cfg => {
+  const img = document.getElementById('camImg');
+  const pane = document.getElementById('camPane');
+  img.src = `http://${cfg.robot_ip}/`;
+  img.onerror = () => pane.classList.add('no-signal');
+  img.onload = () => pane.classList.remove('no-signal');
+  pane.classList.add('no-signal');
+}).catch(() => document.getElementById('camPane').classList.add('no-signal'));
+
+// 키 입력: keydown/keyup 이벤트 기반 + 200ms 하트비트(연결 안전, 서버는 500ms 끊기면 전키 해제)
+const pressed = new Set();
+function sendKeys() {
+  fetch('/keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ keys: Array.from(pressed) }),
+  }).catch(() => {});
+}
+window.addEventListener('keydown', e => {
+  const k = e.key.toLowerCase();
+  if (!pressed.has(k)) { pressed.add(k); sendKeys(); }
+});
+window.addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  if (pressed.delete(k)) sendKeys();
+});
+window.addEventListener('blur', () => { pressed.clear(); sendKeys(); });
+setInterval(sendKeys, 200);
+
+// 상태 SSE
+const es = new EventSource('/status');
+es.onmessage = ev => {
+  const s = JSON.parse(ev.data);
+  document.getElementById('statTorque').textContent = s.torque_on ? 'ON' : 'OFF';
+  document.getElementById('statGait').textContent = s.gait ?? '-';
+  document.getElementById('statSeq').textContent = s.seq;
+  document.getElementById('statRate').textContent = `${s.rate_hz} Hz`;
+  document.getElementById('btnTorqueOn').classList.toggle('active', s.torque_on);
+  document.getElementById('btnTorqueOff').classList.toggle('active', !s.torque_on);
+};
+
+function sendCmd(cmd) {
+  fetch('/cmd', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cmd }),
+  }).catch(() => {});
+}
+document.getElementById('btnTorqueOn').onclick = () => sendCmd('torque_on');
+document.getElementById('btnTorqueOff').onclick = () => sendCmd('torque_off');
+document.getElementById('btnJump').onclick = () => sendCmd('jump');
+</script>
+</body>
+</html>
