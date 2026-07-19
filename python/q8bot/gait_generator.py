@@ -26,13 +26,21 @@ def append_pos_list(list_1, list_2, list_3, list_4):
     Returns:
         Aggregated position list: [q1_1, q2_1, q1_2, q2_2, q1_3, q2_3, q1_4, q2_4]
     """
-    append_list = []
-    for i in range(len(list_1)):
-        append_list.append([list_1[i][0], list_1[i][1],
-                           list_2[i][0], list_2[i][1],
-                           list_3[i][0], list_3[i][1],
-                           list_4[i][0], list_4[i][1]])
-    return append_list
+    return [p1 + p2 + p3 + p4 for p1, p2, p3, p4 in zip(list_1, list_2, list_3, list_4)]
+
+
+def _gen_base_scales(leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, scales):
+    """
+    주어진 stride_scale 리스트 각각에 대해 _generate_base_trajectories를 호출.
+    하나라도 실패(None)하면 전체를 None 리스트로 반환 (호출부는 results[0] is None으로 판별).
+    """
+    results = [
+        _generate_base_trajectories(leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, stride_scale=scale)
+        for scale in scales
+    ]
+    if any(r is None for r in results):
+        return [None] * len(scales)
+    return results
 
 
 def generate_trot_trajectories(leg, gait_params):
@@ -65,28 +73,14 @@ def generate_trot_trajectories(leg, gait_params):
     stacktype, x0, y0, xrange, yrange, yrange2, s1_count, s2_count = gait_params
 
     # Generate base single-leg trajectories with different stride scales
-    move_full_forward = _generate_base_trajectories(
-        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, stride_scale=1.0
-    )
-    move_0_75_forward = _generate_base_trajectories(
-        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, stride_scale=0.75
-    )
-    move_0_5_forward = _generate_base_trajectories(
-        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, stride_scale=0.5
-    )
-    move_full_backward = _generate_base_trajectories(
-        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, stride_scale=-1.0
-    )
-    move_0_75_backward = _generate_base_trajectories(
-        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, stride_scale=-0.75
-    )
-    move_0_5_backward = _generate_base_trajectories(
-        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, stride_scale=-0.5
+    (move_full_forward, move_0_75_forward, move_0_5_forward,
+     move_full_backward, move_0_75_backward, move_0_5_backward) = _gen_base_scales(
+        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count,
+        [1.0, 0.75, 0.5, -1.0, -0.75, -0.5]
     )
 
     # Check for failures
-    if any(m is None for m in [move_full_forward, move_0_75_forward, move_0_5_forward,
-                                 move_full_backward, move_0_75_backward, move_0_5_backward]):
+    if move_full_forward is None:
         return None
 
     # Phase shift for diagonal gait pattern (trot uses 50% offset)
@@ -155,14 +149,11 @@ def generate_walk_trajectories(leg, gait_params):
     stacktype, x0, y0, xrange, yrange, yrange2, s1_count, s2_count = gait_params
 
     # Generate base trajectories
-    move_forward = _generate_base_trajectories(
-        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, stride_scale=1.0
-    )
-    move_backward = _generate_base_trajectories(
-        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, stride_scale=-1.0
+    move_forward, move_backward = _gen_base_scales(
+        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, [1.0, -1.0]
     )
 
-    if move_forward is None or move_backward is None:
+    if move_forward is None:
         return None
 
     # Phase shift for walk gait (each leg offset by 25%)
@@ -214,14 +205,11 @@ def generate_bound_trajectories(leg, gait_params):
     stacktype, x0, y0, xrange, yrange, yrange2, s1_count, s2_count = gait_params
 
     # Generate base trajectories
-    move_forward = _generate_base_trajectories(
-        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, stride_scale=1.0
-    )
-    move_backward = _generate_base_trajectories(
-        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, stride_scale=-1.0
+    move_forward, move_backward = _gen_base_scales(
+        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, [1.0, -1.0]
     )
 
-    if move_forward is None or move_backward is None:
+    if move_forward is None:
         return None
 
     # Phase shift for bound (front/back pairs offset)
@@ -261,14 +249,11 @@ def generate_pronk_trajectories(leg, gait_params):
     stacktype, x0, y0, xrange, yrange, yrange2, s1_count, s2_count = gait_params
 
     # Generate base trajectories
-    move_forward = _generate_base_trajectories(
-        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, stride_scale=1.0
-    )
-    move_backward = _generate_base_trajectories(
-        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, stride_scale=-1.0
+    move_forward, move_backward = _gen_base_scales(
+        leg, x0, y0, xrange, yrange, yrange2, s1_count, s2_count, [1.0, -1.0]
     )
 
-    if move_forward is None or move_backward is None:
+    if move_forward is None:
         return None
 
     # All legs move together (no phase shift)

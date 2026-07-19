@@ -169,15 +169,3 @@ class GaitManager:
         self.current_direction = None
         self.current_trajectory = None
         self.phase_index = 0
-
-    def is_moving(self):
-        """Check if currently executing a movement."""
-        return self.ongoing
-
-    def get_current_direction(self):
-        """Get the current movement direction."""
-        return self.current_direction
-
-    def get_phase(self):
-        """Get the current phase index."""
-        return self.phase_index
