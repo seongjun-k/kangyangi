@@ -14,7 +14,7 @@ import threading
 import time
 from pathlib import Path
 
-DEFAULT_JOINTLIST = [i + 1 for i in range(8)]  # 모터 ID 1-8 (펌웨어 q8Dynamixel.h _DXL과 일치)
+DEFAULT_JOINTLIST = [i + 11 for i in range(8)]  # 모터 ID 11-18 (펌웨어 q8Dynamixel.h _DXL과 일치)
 
 ROBOT_IP = "192.168.4.1"
 ROBOT_PORT = 8888

@@ -44,7 +44,7 @@ class q8Dynamixel
     uint32_t _baudrate = 1000000;
     float _protocolVersion = 2.0;
     static const uint8_t _idCount = 8;
-    const uint8_t _DXL[_idCount] = {1, 2, 3, 4, 5, 6, 7, 8};  // 모터 ID 설정 시 동일 번호로 부여할 것
+    const uint8_t _DXL[_idCount] = {11, 12, 13, 14, 15, 16, 17, 18};  // 모터 ID 설정 시 동일 번호로 부여할 것
     const uint8_t _directionPin = 8;
     static const uint16_t _user_pkt_buf_cap = 128;
     uint8_t _user_pkt_buf[_user_pkt_buf_cap];
