@@ -115,6 +115,13 @@ void q8Dynamixel::setProfile(uint16_t dur){
   }
 }
 
+void q8Dynamixel::ensureProfile(uint16_t dur){
+  // _prevProfile은 jump()도 갱신하는 단일 SSoT(현재 적용된 프로파일) - 여기서만 비교/설정
+  if (dur == _prevProfile) return;
+  setProfile(dur);
+  _prevProfile = dur;
+}
+
 void q8Dynamixel::setGain(uint16_t p_gain){
   // for Time-based Extended Pos, Profile velocity is the move duration (ms).
   for (int i = 0; i < _idCount; i++){

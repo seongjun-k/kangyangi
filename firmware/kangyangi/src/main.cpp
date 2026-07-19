@@ -85,6 +85,7 @@ static const int32_t TICK_MAX = 8191;
 // ============================================================================
 struct MotionCmd {
   int32_t ticks[8];
+  uint16_t dur;
 };
 
 static QueueHandle_t motionQueue = NULL;
@@ -112,6 +113,7 @@ void handleMotionPacket(const uint8_t* data) {
     if (v < TICK_MIN || v > TICK_MAX) return;  // 범위 밖 값이 하나라도 있으면 패킷 전체 폐기
     motionCmd.ticks[i] = v;
   }
+  motionCmd.dur = data[18] | (data[19] << 8);
 
   lastValidPacketMs = millis();
   xQueueOverwrite(motionQueue, &motionCmd);  // 항상 최신 자세만 유지(크기 1 큐)
@@ -129,8 +131,8 @@ void onUdpPacket(AsyncUDPPacket packet) {
   size_t len = packet.length();
   const uint8_t* data = packet.data();
 
-  if (len == 19) {
-    if (xorChecksum(data, 18) != data[18]) return;  // 체크섬 불일치 폐기
+  if (len == 21) {
+    if (xorChecksum(data, 20) != data[20]) return;  // 체크섬 불일치 폐기
     handleMotionPacket(data);
   } else if (len == 3) {
     if (data[0] != 0xFF) return;                    // 커맨드 매직 불일치
@@ -195,6 +197,7 @@ bool processDxlQueue() {
       q8.enableTorque();
       torqueSafetyTripped = false;
     }
+    q8.ensureProfile(motionCmd.dur);
     q8.bulkWrite(motionCmd.ticks);
     return true;
   }

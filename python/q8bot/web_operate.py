@@ -18,7 +18,7 @@ from pathlib import Path
 from kinematics_solver import k_solver
 from udp_link import q8_udp
 from gait_manager import GaitManager, GAITS
-from routine_generator import show_range, greet
+from routine_generator import show_range, greet, paw
 from control_config import JOYSTICK_CONFIG, apply_deadzone, get_joystick_direction
 import voice
 
@@ -50,6 +50,9 @@ VOICE_COMMANDS = [
 # jump는 부분 포함이 아닌 단어 단위 정확 일치만 허용(예: "점프해줘"는 매칭, "점프타운"은 매칭 안 됨).
 JUMP_WORDS = ("점프", "뛰어")
 
+# "손"은 단음절이라 부분 포함이면 "손님" 등에 오탐 — jump와 동일하게 단어 단위 정확 일치만.
+PAW_WORDS = ("손",)
+
 # 부정어가 포함된 문장은 전체 무시(예: "점프하지 마" -> jump 오발동 방지).
 NEGATION_PATTERNS = ("하지마", "하지 마", "안 ", "말고", "말아")
 
@@ -67,6 +70,8 @@ def match_voice_command(text):
     words = text.split()
     if any(w in JUMP_WORDS for w in words):
         return "jump", None
+    if any(w in PAW_WORDS for w in words):
+        return "paw", None
 
     best_action, best_len = None, 0
     for keywords, action in VOICE_COMMANDS:
@@ -184,7 +189,7 @@ WEB_KEY_MAPPING = {
     },
     'actions': {
         'greet': 'h', 'battery': 'b', 'switch_gait': 'g', 'jump': 'j',
-        'reset': 'r', 'show_range': 'c',
+        'reset': 'r', 'show_range': 'c', 'paw': 'p',
     },
 }
 
@@ -332,6 +337,18 @@ def run_greet(q8, leg, pos_ref, suppress, dur=1000):
     threading.Thread(target=_run, daemon=True).start()
 
 
+def run_paw(q8, leg, pos_ref, suppress, dur=1000):
+    def _run():
+        suppress.set()
+        try:
+            paw(q8)
+            q1, q2, _ = leg.ik_solve(pos_ref[0], pos_ref[1], True, 1)
+            q8.move_mirror([q1, q2], dur)
+        finally:
+            suppress.clear()
+    threading.Thread(target=_run, daemon=True).start()
+
+
 class CalibState:
     '''캘리브레이션 모드 상태(락 보호). active 동안 calib_send_loop가 calib_ticks를
     계속 송신한다(500ms 안전정지 워치독 keepalive 겸용 — 모션 패킷 재수신이 곧 torque 유지 조건).'''
@@ -343,13 +360,20 @@ class CalibState:
         self.ticks = list(q8.zero_offsets)
 
     def enter(self):
+        '''새로 활성화됐으면 True, 이미 활성 상태였으면 False(중복 enter 시 suppress 카운터가
+        남아 보행이 영구 억제되는 것을 호출측에서 막기 위해 반환).'''
         with self._lock:
+            was_active = self.active
             self.active = True
             self.ticks = list(self._q8.zero_offsets)
+            return not was_active
 
     def exit(self):
+        '''직전까지 활성 상태였으면 True(호출측에서 이때만 suppress.clear() 하도록).'''
         with self._lock:
+            was_active = self.active
             self.active = False
+            return was_active
 
     def nudge(self, joint, delta):
         with self._lock:
@@ -438,6 +462,8 @@ def execute_voice_command(action, q8, leg, pos_ref, voice_override, suppress):
         run_jump(q8, leg, pos_ref, suppress)
     elif action == "greet":
         run_greet(q8, leg, pos_ref, suppress)
+    elif action == "paw":
+        run_paw(q8, leg, pos_ref, suppress)
     elif action == "torque_off":
         q8.disable_torque()
     elif action == "torque_on":
@@ -519,6 +545,10 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
                 log.info("Greet")
                 run_greet(q8, leg, pos_ref, suppress)
                 time.sleep(0.2)
+            elif is_action_pressed('paw', keys, buttons):
+                log.info("Paw")
+                run_paw(q8, leg, pos_ref, suppress)
+                time.sleep(0.2)
 
         elapsed = time.monotonic() - loop_start
         time.sleep(max(0.0, tick_interval - elapsed))
@@ -597,11 +627,13 @@ def make_handler(key_state, robot_state, q8, leg, pos_ref, robot_ip, voice_state
             if self.path == "/calib":
                 action = payload.get("action")
                 if action == "enter":
-                    suppress.set()  # gait 프레임 송신 억제(jump/greet와 동일 메커니즘 재사용)
-                    calib_state.enter()
+                    # enter()가 새로 활성화된 경우에만 suppress.set() - 중복 enter 시 카운터가
+                    # 쌓여 exit 한 번으로 해제되지 않고 보행이 영구 억제되는 버그 방지
+                    if calib_state.enter():
+                        suppress.set()  # gait 프레임 송신 억제(jump/greet와 동일 메커니즘 재사용)
                 elif action == "exit":
-                    calib_state.exit()
-                    suppress.clear()
+                    if calib_state.exit():
+                        suppress.clear()
                 else:
                     self._send_json({"error": "unknown action"}, 400)
                     return
@@ -623,6 +655,7 @@ def make_handler(key_state, robot_state, q8, leg, pos_ref, robot_ip, voice_state
                     self._send_json({"error": "not in calib mode"}, 400)
                     return
                 save_calibration(ticks)
+                q8.zero_offsets = list(ticks)  # 저장 즉시 반영, 재시작 없이 적용
                 self._send_json({"ok": True, "zero_offsets": ticks})
             elif self.path == "/keys":
                 keys = payload.get("keys", [])

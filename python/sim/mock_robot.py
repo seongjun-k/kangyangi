@@ -8,7 +8,7 @@ import struct
 import threading
 import time
 
-MOTION_LEN = 19
+MOTION_LEN = 21
 CMD_LEN = 3
 CMD_MAGIC = 0xFF
 CMD_TORQUE_OFF = 0
@@ -82,12 +82,12 @@ class MockRobot:
             return
 
     def _handle_motion(self, data):
-        body, checksum = data[:18], data[18]
+        body, checksum = data[:20], data[20]
         if _xor_checksum(body) != checksum:
             self.checksum_errors += 1
             print("[mock_robot] 모션 패킷 체크섬 불일치 -> 폐기")
             return
-        seq, *ticks = struct.unpack("<H8H", body)
+        seq, *ticks, dur = struct.unpack("<H8HH", body)
         with self._lock:
             if self.last_seq is not None and seq == self.last_seq:
                 # 중복 패킷 무시 (protocol.md)
@@ -101,7 +101,7 @@ class MockRobot:
                 # protocol.md 안전 규칙: 안전정지 후 유효한 모션 패킷 재수신 시 torque 자동 재활성화
                 self.torque_on = True
                 print("[mock_robot] 유효 모션 패킷 수신 -> torque 자동 재활성화")
-        print(f"[mock_robot] motion seq={seq} ticks={ticks}")
+        print(f"[mock_robot] motion seq={seq} ticks={ticks} dur={dur}")
 
     def _handle_cmd(self, data):
         body, checksum = data[:2], data[2]

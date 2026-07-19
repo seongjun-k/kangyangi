@@ -10,6 +10,8 @@ q8_espnow과 동일하게 유지해 operate.py 등 호출부 수정을 최소화
 import json
 import socket
 import struct
+import threading
+import time
 from pathlib import Path
 
 DEFAULT_JOINTLIST = [i + 1 for i in range(8)]  # 모터 ID 1-8 (펌웨어 q8Dynamixel.h _DXL과 일치)
@@ -55,14 +57,34 @@ class q8_udp:
         self.JOINTS = joint_list
         self.torque_on = False
         self.seq = 0
+        self._seq_lock = threading.Lock()  # keepalive 스레드와 제어 루프가 동시 송신 시 seq 중복 방지
         self.zero_offsets = load_zero_offsets()
+        self._last_motion = None  # (ticks, dur, 마지막 송신 시각) - keepalive가 재송신할 최근 모션
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
+        # 펌웨어 500ms 무수신 워치독(docs/protocol.md 안전 규칙) 하에서 정지 자세를 유지하기 위한
+        # keepalive. 200Hz gait 스트리밍 중에는 마지막 송신이 0.15초를 넘지 않아 침묵한다.
+        self._keepalive_thread = threading.Thread(target=self._keepalive_loop, daemon=True)
+        self._keepalive_thread.start()
+
     def _next_seq(self):
-        seq = self.seq
-        self.seq = (self.seq + 1) & 0xFFFF  # uint16 랩어라운드
-        return seq
+        with self._seq_lock:
+            seq = self.seq
+            self.seq = (self.seq + 1) & 0xFFFF  # uint16 랩어라운드
+            return seq
+
+    def _keepalive_loop(self):
+        while True:
+            time.sleep(0.1)
+            if not self.torque_on:  # 수동 torque off 의도 존중
+                continue
+            last = self._last_motion
+            if last is None:
+                continue
+            ticks, dur, last_sent = last
+            if time.monotonic() - last_sent > 0.15:
+                self.send_raw_ticks(ticks, dur)  # 재송신이 _last_motion 타임스탬프를 자연히 갱신
 
     def _send(self, payload):
         try:
@@ -91,12 +113,13 @@ class q8_udp:
         return self._send_cmd(CMD_JUMP)
 
     def move_all(self, joints_pos, dur=0, record=True):
-        # Expects 8 positions in deg. dur(프로파일 시간)/record는 새 프로토콜에 없어 무시.
+        # Expects 8 positions in deg. record는 새 프로토콜에 없어 무시. dur(프로파일 시간, ms)는
+        # 모션 패킷에 실어 펌웨어로 전달한다.
         try:
             ticks = [self.deg2dxl(p, i) for i, p in enumerate(joints_pos)]
         except (struct.error, ValueError):
             return False
-        return self.send_raw_ticks(ticks)
+        return self.send_raw_ticks(ticks, int(dur))
 
     def move_mirror(self, joint_pos, dur=0):
         # Expects a pair of pos for one leg, which will be mirrored 4times.
@@ -106,19 +129,22 @@ class q8_udp:
             mirrored_pos.append(joint_pos[1])
         return self.move_all(mirrored_pos, dur, False)
 
-    def send_raw_ticks(self, ticks):
+    def send_raw_ticks(self, ticks, dur=0):
         '''이미 계산된 tick 8개(ID 1-8 순서)를 그대로 모션 패킷으로 송신.
-        캘리브레이션 마법사가 deg2dxl을 거치지 않고 직접 tick을 보낼 때 사용.'''
+        캘리브레이션 마법사가 deg2dxl을 거치지 않고 직접 tick을 보낼 때도 사용.'''
         try:
             seq = self._next_seq()
-            body = struct.pack("<H8H", seq, *ticks)  # seq(2B) + tick*8(16B)
+            body = struct.pack("<H8HH", seq, *ticks, dur)  # seq(2B) + tick*8(16B) + dur(2B)
             checksum = 0
             for b in body:
                 checksum ^= b
-            self._send(body + bytes([checksum]))
+            ok = self._send(body + bytes([checksum]))
         except struct.error:
             return False
-        return True
+        if ok:
+            # 단일 속성 대입은 GIL로 원자적이라 락 불필요
+            self._last_motion = (list(ticks), dur, time.monotonic())
+        return ok
 
     def deg2dxl(self, angle_friendly, joint_index=0):
         # joint_index(0-7)로 관절별 실측 zero offset(calibration.json)을 적용.

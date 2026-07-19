@@ -25,6 +25,7 @@ class q8Dynamixel
     void resetTorqueState();  // Reset internal torque flag without changing hardware state
     void setOpMode();
     void setProfile(uint16_t dur);
+    void ensureProfile(uint16_t dur);
     void setGain(uint16_t p_gain);
     void moveSingle(int32_t val);
     void bulkWrite(int32_t values[8]);
@@ -51,7 +52,7 @@ class q8Dynamixel
     const uint8_t _gearRatio = 1;
     int32_t _posArray[8];
     uint16_t _profile = 0;
-    uint16_t _prevProfile;
+    uint16_t _prevProfile = 1000;  // begin()의 setProfile(1000)과 일치시켜 초기 비교값을 정의(기존엔 미초기화였음)
     bool _torqueFlag = false;
     bool _prevTorqueFlag = false;
     uint8_t _specialCmd = 0;

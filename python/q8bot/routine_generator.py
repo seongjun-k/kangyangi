@@ -40,6 +40,19 @@ def show_range(q8):
     return
 
 
+def paw(q8):
+    # "손" 동작 — greet의 검증된 via point만 재조합(새 포즈 발명 금지: 실기 검증 전 안전).
+    # 웅크림 -> 뒷다리 낮춤 -> 앞다리 하나 올려 1.5초 유지 -> 복귀.
+    q8.move_all(G1, 1000, False)
+    time.sleep(1.1)
+    q8.move_all(G3, 500, False)
+    time.sleep(1)
+    q8.move_all(G4, 500, False)
+    time.sleep(0.5 + 1.5)  # 도달 0.5초 + 유지 1.5초
+    q8.move_all(G6, 500, False)
+    time.sleep(0.7)
+
+
 def greet(q8):
     q8.move_all(G1, 1000, False)
     time.sleep(1.1)
