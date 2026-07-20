@@ -141,7 +141,8 @@ class VoiceState:
                 return None
             stop_event = self.stop_event
             thread = self.thread
-        stop_event.set()
+        if stop_event is not None:
+            stop_event.set()
         if thread is not None:
             thread.join(timeout=2)
         with self._lock:
@@ -188,7 +189,7 @@ WEB_KEY_MAPPING = {
         'forward_left': 'q', 'forward_right': 'e',
     },
     'actions': {
-        'greet': 'h', 'battery': 'b', 'switch_gait': 'g', 'jump': 'j',
+        'greet': 'h', 'switch_gait': 'g', 'jump': 'j',
         'reset': 'r', 'show_range': 'c', 'paw': 'p',
     },
 }
@@ -490,7 +491,7 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
         return voice_override.get()
 
     movement = False
-    prev_jump = prev_paw = False
+    prev_jump = prev_greet = prev_paw = False
     tick_interval = 1.0 / SPEED
 
     while not stop_event.is_set():
@@ -504,11 +505,14 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
 
         keys, axes, buttons = key_state.get()
 
-        # jump/paw는 홀드 시 반복 발동 방지 — 눌리는 순간(rising edge)에만 트리거.
+        # jump/greet/paw는 홀드 시 반복 발동 방지 — 눌리는 순간(rising edge)에만 트리거.
         jump_now = is_action_pressed('jump', keys, buttons)
+        greet_now = is_action_pressed('greet', keys, buttons)
         paw_now = is_action_pressed('paw', keys, buttons)
-        jump_edge, paw_edge = jump_now and not prev_jump, paw_now and not prev_paw
-        prev_jump, prev_paw = jump_now, paw_now
+        jump_edge = jump_now and not prev_jump
+        greet_edge = greet_now and not prev_greet
+        paw_edge = paw_now and not prev_paw
+        prev_jump, prev_greet, prev_paw = jump_now, greet_now, paw_now
 
         if movement:
             direction = effective_direction(keys, axes)
@@ -549,10 +553,9 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
                 log.info("Show Range")
                 show_range(q8)
                 time.sleep(0.2)
-            elif is_action_pressed('greet', keys, buttons):
+            elif greet_edge:
                 log.info("Greet")
                 run_greet(q8, leg, pos_ref, suppress)
-                time.sleep(0.2)
             elif paw_edge:
                 log.info("Paw")
                 run_paw(q8, leg, pos_ref, suppress)
@@ -574,7 +577,7 @@ def status_stream_body(robot_state):
 def make_handler(key_state, robot_state, q8, leg, pos_ref, robot_ip, voice_state, voice_override, suppress,
                   calib_state):
     class Handler(BaseHTTPRequestHandler):
-        def log_message(self, fmt, *args):
+        def log_message(self, format, *args):
             pass  # 표준 stderr 접근 로그 억제(콘솔 소음 방지)
 
         def _send_json(self, obj, status=200):
