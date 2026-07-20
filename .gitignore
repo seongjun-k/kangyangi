@@ -3,3 +3,4 @@ CLAUDE.md
 .pio/
 __pycache__/
 python/q8bot/models/
+hardware/
