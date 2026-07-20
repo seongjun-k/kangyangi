@@ -47,7 +47,7 @@ VOICE_COMMANDS = [
     (("일어나", "준비"), "torque_on"),
 ]
 
-# jump는 부분 포함이 아닌 단어 단위 정확 일치만 허용(예: "점프해줘"는 매칭, "점프타운"은 매칭 안 됨).
+# jump는 부분 포함이 아닌 단어 단위 정확 일치만 허용("점프 해줘"는 매칭, 한 단어 "점프해줘"·"점프타운"은 매칭 안 됨 — 의도된 안전 동작).
 JUMP_WORDS = ("점프", "뛰어")
 
 # "손"은 단음절이라 부분 포함이면 "손님" 등에 오탐 — jump와 동일하게 단어 단위 정확 일치만.
@@ -311,13 +311,14 @@ class ControlSuppress:
 
 
 def run_jump(q8, leg, pos_ref, suppress):
-    '''jump 실행 + 5초 후 정지 자세 복귀를 별도 스레드에서 수행(control_loop 블로킹 방지).
+    '''jump 실행 + 복귀를 별도 스레드에서 수행(control_loop 블로킹 방지).
     suppress로 감싸 control_loop의 gait 송신과 겹치지 않게 한다.'''
     def _run():
         suppress.set()
         try:
             q8.send_jump()
-            time.sleep(5)
+            # 펌웨어 jump()가 7.3s 블로킹(q8Dynamixel.cpp) — 그보다 짧으면 jump 후반에 gait 패킷이 겹친다.
+            time.sleep(7.5)
             q1, q2, _ = leg.ik_solve(pos_ref[0], pos_ref[1], True, 1)
             q8.move_mirror([q1, q2], 500)
         finally:
@@ -489,6 +490,7 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
         return voice_override.get()
 
     movement = False
+    prev_jump = prev_paw = False
     tick_interval = 1.0 / SPEED
 
     while not stop_event.is_set():
@@ -501,6 +503,12 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
             continue
 
         keys, axes, buttons = key_state.get()
+
+        # jump/paw는 홀드 시 반복 발동 방지 — 눌리는 순간(rising edge)에만 트리거.
+        jump_now = is_action_pressed('jump', keys, buttons)
+        paw_now = is_action_pressed('paw', keys, buttons)
+        jump_edge, paw_edge = jump_now and not prev_jump, paw_now and not prev_paw
+        prev_jump, prev_paw = jump_now, paw_now
 
         if movement:
             direction = effective_direction(keys, axes)
@@ -523,7 +531,7 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
                 log.info("Gait Reset")
                 move_xy(pos_ref[0], pos_ref[1], 500)
                 time.sleep(0.2)
-            elif is_action_pressed('jump', keys, buttons):
+            elif jump_edge:
                 log.info("Jump")
                 run_jump(q8, leg, pos_ref, suppress)  # 별도 스레드 -> control_loop 블로킹 없음
             elif is_action_pressed('switch_gait', keys, buttons):
@@ -545,10 +553,9 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
                 log.info("Greet")
                 run_greet(q8, leg, pos_ref, suppress)
                 time.sleep(0.2)
-            elif is_action_pressed('paw', keys, buttons):
+            elif paw_edge:
                 log.info("Paw")
                 run_paw(q8, leg, pos_ref, suppress)
-                time.sleep(0.2)
 
         elapsed = time.monotonic() - loop_start
         time.sleep(max(0.0, tick_interval - elapsed))
