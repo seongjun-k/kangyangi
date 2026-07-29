@@ -71,6 +71,21 @@ uint16_t q8Dynamixel::checkBattery(){
 }
 
 void q8Dynamixel::enableTorque(){
+  // 브라운아웃 등으로 래치된 하드웨어 에러(빨간 LED 점멸)는 reboot으로만 해제된다.
+  // 에러 모터만 리부팅. 리부팅은 RAM 레지스터(프로파일/게인)를 초기화하므로
+  // 재적용 없이는 Profile Velocity=0(최대 속도)이 되어 위험 — setProfile 재실행 필수.
+  bool rebooted = false;
+  for (int i = 0; i < _idCount; i++){
+    int32_t hwerr = _dxl.readControlTableItem(HARDWARE_ERROR_STATUS, _DXL[i]);
+    if (hwerr > 0){
+      _dxl.reboot(_DXL[i]);
+      rebooted = true;
+    }
+  }
+  if (rebooted){
+    delay(300);  // reboot 후 재기동 대기(진단 스케치에서 300ms로 실기 확인)
+    setProfile(_prevProfile);
+  }
   _dxl.torqueOn(BROADCAST_ID);
 }
 
