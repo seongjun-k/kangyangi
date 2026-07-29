@@ -32,7 +32,10 @@ void scanAt(uint32_t baud) {
   bool found = false;
   for (uint8_t id = 1; id <= 20; id++) {
     if (dxl.ping(id)) {
-      Serial.printf(" ID%d(model %d)", id, dxl.getModelNumber(id));
+      int32_t hwerr = dxl.readControlTableItem(ControlTableItem::HARDWARE_ERROR_STATUS, id);
+      int32_t volt = dxl.readControlTableItem(ControlTableItem::PRESENT_INPUT_VOLTAGE, id);
+      int32_t temp = dxl.readControlTableItem(ControlTableItem::PRESENT_TEMPERATURE, id);
+      Serial.printf(" ID%d(HWERR=0x%02lX V=%.1f T=%ldC)", id, (long)hwerr, volt / 10.0, (long)temp);
       found = true;
     }
   }
@@ -89,6 +92,34 @@ void setup() {
   Serial.begin(115200);
   delay(5000);  // 호스트가 CDC 포트를 열 시간 확보
   Serial1.begin(1000000, SERIAL_8N1, DXL_RX_PIN, DXL_TX_PIN);
+
+  // 일괄 time-based profile 설정: ID 11~18 중 DRIVE_MODE bit2 미설정인 모터만 EEPROM 쓰기
+  beginAt(1000000);
+  for (uint8_t id = 11; id <= 18; id++) {
+    if (!dxl.ping(id)) continue;
+    int32_t dm = dxl.readControlTableItem(ControlTableItem::DRIVE_MODE, id);
+    if (dm >= 0 && !(dm & 0x04)) {
+      dxl.torqueOff(id);
+      bool ok = dxl.writeControlTableItem(ControlTableItem::DRIVE_MODE, id, dm | 0x04);
+      Serial.printf("[DXLTEST] ID%d DRIVE_MODE %ld->%ld: %s\n",
+                    id, (long)dm, (long)(dm | 0x04), ok ? "OK" : "FAIL");
+      delay(100);
+    }
+  }
+
+  // 에러 진단 + 리부팅: 부팅 시 1회 — HWERR 원인을 먼저 읽고 reboot으로 래치 해제
+  for (uint8_t id = 11; id <= 18; id++) {
+    if (!dxl.ping(id)) {
+      Serial.printf("[DXLTEST] ID%d: no response, skip\n", id);
+      continue;
+    }
+    int32_t hwerr = dxl.readControlTableItem(ControlTableItem::HARDWARE_ERROR_STATUS, id);
+    int32_t volt = dxl.readControlTableItem(ControlTableItem::PRESENT_INPUT_VOLTAGE, id);
+    Serial.printf("[DXLTEST] ID%d pre-reboot: HWERR=0x%02lX V=%.1f -> reboot\n",
+                  id, (long)hwerr, volt / 10.0);
+    dxl.reboot(id);
+    delay(300);
+  }
 }
 
 void loop() {
