@@ -34,8 +34,8 @@ void scanAt(uint32_t baud) {
     if (dxl.ping(id)) {
       int32_t hwerr = dxl.readControlTableItem(ControlTableItem::HARDWARE_ERROR_STATUS, id);
       int32_t volt = dxl.readControlTableItem(ControlTableItem::PRESENT_INPUT_VOLTAGE, id);
-      int32_t temp = dxl.readControlTableItem(ControlTableItem::PRESENT_TEMPERATURE, id);
-      Serial.printf(" ID%d(HWERR=0x%02lX V=%.1f T=%ldC)", id, (long)hwerr, volt / 10.0, (long)temp);
+      int32_t dm = dxl.readControlTableItem(ControlTableItem::DRIVE_MODE, id);
+      Serial.printf(" ID%d(HWERR=0x%02lX V=%.1f DM=%ld)", id, (long)hwerr, volt / 10.0, (long)dm);
       found = true;
     }
   }
@@ -93,16 +93,19 @@ void setup() {
   delay(5000);  // 호스트가 CDC 포트를 열 시간 확보
   Serial1.begin(1000000, SERIAL_8N1, DXL_RX_PIN, DXL_TX_PIN);
 
-  // 일괄 time-based profile 설정: ID 11~18 중 DRIVE_MODE bit2 미설정인 모터만 EEPROM 쓰기
+  // 일괄 DRIVE_MODE 설정: bit2 = time-based profile(전 모터),
+  // bit0 = reverse(13,14,17,18 — 반대편 다리 미러링, 2026-07-29 점프 방향 실기 확인)
   beginAt(1000000);
   for (uint8_t id = 11; id <= 18; id++) {
     if (!dxl.ping(id)) continue;
     int32_t dm = dxl.readControlTableItem(ControlTableItem::DRIVE_MODE, id);
-    if (dm >= 0 && !(dm & 0x04)) {
+    int32_t want = 0x04;
+    if (id == 13 || id == 14 || id == 17 || id == 18) want |= 0x01;
+    if (dm >= 0 && dm != want) {
       dxl.torqueOff(id);
-      bool ok = dxl.writeControlTableItem(ControlTableItem::DRIVE_MODE, id, dm | 0x04);
+      bool ok = dxl.writeControlTableItem(ControlTableItem::DRIVE_MODE, id, want);
       Serial.printf("[DXLTEST] ID%d DRIVE_MODE %ld->%ld: %s\n",
-                    id, (long)dm, (long)(dm | 0x04), ok ? "OK" : "FAIL");
+                    id, (long)dm, (long)want, ok ? "OK" : "FAIL");
       delay(100);
     }
   }
