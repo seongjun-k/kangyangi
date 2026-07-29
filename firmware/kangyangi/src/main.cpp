@@ -353,6 +353,17 @@ void setup() {
   udp.listen(8888);
   udp.onPacket(onUdpPacket);
 
+  // 마이크 I2S를 반드시 카메라보다 먼저 init할 것 — 카메라 init 후 I2S.begin(PDM)이
+  // 실행되면 카메라 DMA가 멈춰 프레임이 나오지 않는다(2026-07-29 실기 분리 테스트로 확인).
+  micReady = micInit();
+  if (micReady) {
+    micServer.begin();
+    // 스택 8192: cameraTask와 동일 근거(WiFiClient/printf 경로 포함 시 4096 여유 불확실)
+    xTaskCreatePinnedToCore(micTask, "mic", 8192, NULL, tskIDLE_PRIORITY + 1, NULL, 0);
+  } else {
+    Serial.println("[MIC] init failed - mic disabled, motor/camera control continues");
+  }
+
   cameraReady = cameraInit();
   if (cameraReady) {
     camServer.begin();
@@ -362,15 +373,6 @@ void setup() {
     xTaskCreatePinnedToCore(cameraTask, "camera", 8192, NULL, tskIDLE_PRIORITY + 1, NULL, 0);
   } else {
     Serial.println("[CAM] init failed - camera disabled, motor control continues");
-  }
-
-  micReady = micInit();
-  if (micReady) {
-    micServer.begin();
-    // 스택 8192: cameraTask와 동일 근거(WiFiClient/printf 경로 포함 시 4096 여유 불확실)
-    xTaskCreatePinnedToCore(micTask, "mic", 8192, NULL, tskIDLE_PRIORITY + 1, NULL, 0);
-  } else {
-    Serial.println("[MIC] init failed - mic disabled, motor/camera control continues");
   }
 }
 
