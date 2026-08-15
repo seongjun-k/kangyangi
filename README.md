@@ -72,10 +72,12 @@ Join the `kangyangi` WiFi network. The laptop keeps its normal internet connecti
 
 ```bash
 cd python/q8bot
-pip install -r ../requirements.txt
-python3 web_operate.py                  # --ip 127.0.0.1 to target the simulator
+../../.venv/bin/pip install -r ../requirements.txt
+../../.venv/bin/python web_operate.py   # --ip 127.0.0.1 to target the simulator
                                         # --port 8080, --debug
 ```
+
+Use the venv's interpreter, not a bare `python3`. Voice recognition is behind an import guard, so a system interpreter without `vosk` starts the server normally and silently recognises nothing.
 
 Open `http://localhost:8080/`.
 

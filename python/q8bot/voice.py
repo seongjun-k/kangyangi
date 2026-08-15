@@ -67,6 +67,9 @@ def _get_recognizer():
 def preload_model_async():
     '''서버 기동 시 백그라운드 스레드로 모델을 미리 로드해 첫 PTT 블로킹을 없앤다.'''
     if not _VOSK_AVAILABLE:
+        # 임포트 가드가 조용히 삼키면 "마이크 고장"과 구분이 안 된다(2026-08-15 실제로 오진).
+        # 기동 시 딱 한 번 경고를 남겨 원인을 드러낸다.
+        print("[voice] vosk 미설치 - 음성 인식 비활성. 설치: pip install vosk", file=sys.stderr)
         return
     def _run():
         try:
