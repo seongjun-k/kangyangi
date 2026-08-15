@@ -7,7 +7,7 @@
 | 오프셋 | 크기 | 필드 |
 |---|---|---|
 | 0 | 2 | seq (uint16 LE, 송신마다 +1, 랩어라운드 허용) |
-| 2 | 16 | angle×8 (uint16 LE ×8) — **Dynamixel raw tick (0–8191, extended position mode, 중앙 4096)**, ID 1→8 순서 |
+| 2 | 16 | angle×8 (uint16 LE ×8) — **Dynamixel raw tick (0–4095, 단일 회전 Position 모드, 중앙 1024)**, ID 1→8 순서 |
 | 18 | 2 | dur (uint16 LE, ms) — PROFILE_VELOCITY에 적용할 프로파일 시간. 0=최고속. 펌웨어는 직전 값과 다를 때만 적용(`ensureProfile`) |
 | 20 | 1 | checksum — 앞 20바이트 XOR |
 

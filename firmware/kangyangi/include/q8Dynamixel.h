@@ -48,7 +48,9 @@ class q8Dynamixel
     const uint8_t _directionPin = 8;
     static const uint16_t _user_pkt_buf_cap = 128;
     uint8_t _user_pkt_buf[_user_pkt_buf_cap];
-    const int16_t _zeroOffset = 4096;
+    // 단일 회전 Position 모드(0~4095) 안에서 관절 실사용 범위(-40~220도)가
+    // 전부 들어오도록 중앙을 1024로 잡음(협의 SSoT: docs/protocol.md, python ZERO_OFFSET과 일치).
+    const int16_t _zeroOffset = 1024;
     const uint8_t _gearRatio = 1;
     int32_t _posArray[8];
     uint16_t _profile = 0;

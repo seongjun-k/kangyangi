@@ -66,9 +66,9 @@ bool torqueSafetyTripped = false;
 bool haveSeq = false;
 uint16_t lastSeq = 0;
 
-// 모션 패킷 tick 유효 범위: 중립 4096(HOMING_OFFSET) 기준 0~8191(13bit 미만) 벗어나면 폐기
+// 모션 패킷 tick 유효 범위: 단일 회전 Position 모드 0~4095, 중립 1024 벗어나면 폐기
 static const int32_t TICK_MIN = 0;
-static const int32_t TICK_MAX = 8191;
+static const int32_t TICK_MAX = 4095;
 
 // ============================================================================
 // Dynamixel 접근 직렬화용 큐

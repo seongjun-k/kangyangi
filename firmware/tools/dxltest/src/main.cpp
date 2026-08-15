@@ -35,7 +35,11 @@ void scanAt(uint32_t baud) {
       int32_t hwerr = dxl.readControlTableItem(ControlTableItem::HARDWARE_ERROR_STATUS, id);
       int32_t volt = dxl.readControlTableItem(ControlTableItem::PRESENT_INPUT_VOLTAGE, id);
       int32_t dm = dxl.readControlTableItem(ControlTableItem::DRIVE_MODE, id);
-      Serial.printf(" ID%d(HWERR=0x%02lX V=%.1f DM=%ld)", id, (long)hwerr, volt / 10.0, (long)dm);
+      int32_t opm = dxl.readControlTableItem(ControlTableItem::OPERATING_MODE, id);
+      int32_t torq = dxl.readControlTableItem(ControlTableItem::TORQUE_ENABLE, id);
+      int32_t pos = dxl.readControlTableItem(ControlTableItem::PRESENT_POSITION, id);
+      Serial.printf(" ID%d(HWERR=0x%02lX V=%.1f DM=%ld OPM=%ld TORQ=%ld POS=%ld)",
+                    id, (long)hwerr, volt / 10.0, (long)dm, (long)opm, (long)torq, (long)pos);
       found = true;
     }
   }

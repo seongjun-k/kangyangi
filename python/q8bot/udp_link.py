@@ -25,13 +25,14 @@ CMD_TORQUE_OFF = 0
 CMD_TORQUE_ON = 1
 CMD_JUMP = 4
 
-# deg -> Dynamixel raw tick(0-8191, extended position mode) 변환 계수.
+# deg -> Dynamixel raw tick(0-4095, 단일 회전 Position 모드) 변환 계수.
 # 원본 espnow.py의 deg2dxl 로직을 이식했으나 GEAR_RATIO 값은
 # control_config.py/helpers.py 어디에도 정의되어 있지 않았음(원본에서도 미사용 dead code).
-# ZERO_OFFSET=4096은 펌웨어 q8Dynamixel.h:51 HOMING_OFFSET(_zeroOffset)과 일치(SSoT)이자
-# calibration.json 미존재 시(실측 보정 전) 기본값.
+# ZERO_OFFSET=1024는 펌웨어 q8Dynamixel.h:51 _zeroOffset과 일치(SSoT)이자
+# calibration.json 미존재 시(실측 보정 전) 기본값. Extended Position 모드는 전원 손실 시
+# 멀티턴 카운터가 리셋되어 재부팅 후 모터가 풀턴 하는 문제가 있어 단일 회전 모드로 변경(2026-07-31).
 GEAR_RATIO = 1.0
-ZERO_OFFSET = 4096
+ZERO_OFFSET = 1024
 
 # 캘리브레이션 마법사(web_operate.py /calib)가 저장하는 관절별 실측 오프셋 파일.
 CALIBRATION_FILE = Path(__file__).parent / "calibration.json"
@@ -150,4 +151,4 @@ class q8_udp:
         # joint_index(0-7)로 관절별 실측 zero offset(calibration.json)을 적용.
         friendly_per_dxl = 360.0 / 4096.0 / GEAR_RATIO
         angle_dxl = int(angle_friendly / friendly_per_dxl + 0.5) + self.zero_offsets[joint_index]
-        return max(0, min(8191, angle_dxl))  # extended position mode tick 유효범위는 0-8191
+        return max(0, min(4095, angle_dxl))  # position 모드 tick 유효범위는 0-4095

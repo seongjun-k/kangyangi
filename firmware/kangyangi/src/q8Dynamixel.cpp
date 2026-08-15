@@ -108,16 +108,24 @@ void q8Dynamixel::resetTorqueState(){
 }
 
 void q8Dynamixel::setOpMode(){
-  // Set operating mode. Torque off first if needed.
-  if (!_torqueFlag){
-    for (int i = 0; i < _idCount; i++){
-      _dxl.setOperatingMode(_DXL[i], OP_EXTENDED_POSITION);
-    }
-  } else{
-    disableTorque();
-    for (int i = 0; i < _idCount; i++){
-      _dxl.setOperatingMode(_DXL[i], OP_EXTENDED_POSITION);
-    }
+  // 관절 실사용 범위(약 260도, 4096틱=360도 이내)가 한 바퀴 안에 들어가므로
+  // 멀티턴을 추적하는 Extended Position 대신 단일 회전 Position 모드를 쓴다.
+  // 전원이 끊겨도 present position이 항상 물리 각도 그대로 복원되어
+  // 재부팅 시 팬텀 풀턴이 발생하지 않는다.
+  //
+  // ESP32만 재부팅되고 모터 전원은 유지될 수 있어 소프트웨어 _torqueFlag(항상 false로
+  // 시작)와 실제 하드웨어 Torque Enable 상태가 다를 수 있다. Operating Mode(EEPROM)는
+  // Torque Off 상태에서만 쓸 수 있으므로 플래그와 무관하게 항상 먼저 강제로 끈다.
+  disableTorque();
+
+  // setOperatingMode()는 내부적으로 ping()이 채워주는 모델 번호 캐시를 참조한다.
+  // ping 없이 바로 호출하면 캐시가 비어 미등록 모델로 처리되어 아무것도 쓰지 않고
+  // 조용히 실패한다(실기로 setOperatingMode 반환값이 매번 FAIL임을 확인해 원인 특정).
+  for (int i = 0; i < _idCount; i++){
+    _dxl.ping(_DXL[i]);
+    _dxl.setOperatingMode(_DXL[i], OP_POSITION);
+  }
+  if (_torqueFlag){
     enableTorque();
   }
 }
