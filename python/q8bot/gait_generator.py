@@ -476,7 +476,8 @@ def _generate_base_trajectories(leg, x0, y0, xrange, yrange, yrange2, s1_count, 
         q1, q2, check = leg.ik_solve(x, y, True, 1)
 
         # Validate IK solution
-        if len(str(q1)) > 5 or len(str(q2)) > 5:
+        # check=False면 ik_solve가 실패해 이전 각도를 반환한 것 — 궤적에 넣지 말고 workspace를 줄여 재시도.
+        if not check:
             xr_new, yr_new = xrange - 1, yrange - 1
             if xr_new > 0 and yr_new > 0:
                 return _generate_base_trajectories(

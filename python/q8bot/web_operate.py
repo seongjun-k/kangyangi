@@ -311,6 +311,17 @@ class ControlSuppress:
             return self._count > 0
 
 
+def move_stance(q8, leg, x, y, dur):
+    '''IK 계산 후 move_mirror 송신. ik_solve는 실패 시 이전 각도를 반환하므로
+    (kinematics_solver.py prev_ik) 실패 프레임은 송신하지 않고 스킵한다.'''
+    q1, q2, ok = leg.ik_solve(x, y, True, 1)
+    if not ok:
+        logging.getLogger("kangyangi").warning(f"IK failed at ({x}, {y}); move skipped")
+        return False
+    q8.move_mirror([q1, q2], dur)
+    return True
+
+
 def run_jump(q8, leg, pos_ref, suppress):
     '''jump 실행 + 복귀를 별도 스레드에서 수행(control_loop 블로킹 방지).
     suppress로 감싸 control_loop의 gait 송신과 겹치지 않게 한다.'''
@@ -320,8 +331,7 @@ def run_jump(q8, leg, pos_ref, suppress):
             q8.send_jump()
             # 펌웨어 jump()가 7.3s 블로킹(q8Dynamixel.cpp) — 그보다 짧으면 jump 후반에 gait 패킷이 겹친다.
             time.sleep(7.5)
-            q1, q2, _ = leg.ik_solve(pos_ref[0], pos_ref[1], True, 1)
-            q8.move_mirror([q1, q2], 500)
+            move_stance(q8, leg, pos_ref[0], pos_ref[1], 500)
         finally:
             suppress.clear()
     threading.Thread(target=_run, daemon=True).start()
@@ -332,8 +342,7 @@ def run_greet(q8, leg, pos_ref, suppress, dur=1000):
         suppress.set()
         try:
             greet(q8)
-            q1, q2, _ = leg.ik_solve(pos_ref[0], pos_ref[1], True, 1)
-            q8.move_mirror([q1, q2], dur)
+            move_stance(q8, leg, pos_ref[0], pos_ref[1], dur)
         finally:
             suppress.clear()
     threading.Thread(target=_run, daemon=True).start()
@@ -344,8 +353,7 @@ def run_paw(q8, leg, pos_ref, suppress, dur=1000):
         suppress.set()
         try:
             paw(q8)
-            q1, q2, _ = leg.ik_solve(pos_ref[0], pos_ref[1], True, 1)
-            q8.move_mirror([q1, q2], dur)
+            move_stance(q8, leg, pos_ref[0], pos_ref[1], dur)
         finally:
             suppress.clear()
     threading.Thread(target=_run, daemon=True).start()
@@ -478,9 +486,8 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
     '''operate.py 메인 루프의 pygame 비의존 로직을 이식: 키 상태 -> gait 갱신 -> UDP 송신.'''
 
     def move_xy(x, y, dur=0):
-        q1, q2, _ = leg.ik_solve(x, y, True, 1)
-        q8.move_mirror([q1, q2], dur)
-        robot_state.note_send()
+        if move_stance(q8, leg, x, y, dur):
+            robot_state.note_send()
 
     def effective_direction(keys, axes):
         # 사용자 실키/게임패드 입력이 있으면 그쪽 우선, 없을 때만 음성 오버라이드를 사용한다
@@ -741,8 +748,7 @@ def main():
 
     first_gait_params = GAITS[gait_names[0]]
     pos_ref = [first_gait_params[1], first_gait_params[2]]
-    q1, q2, _ = leg.ik_solve(pos_ref[0], pos_ref[1], True, 1)
-    q8.move_mirror([q1, q2], 1000)
+    move_stance(q8, leg, pos_ref[0], pos_ref[1], 1000)
 
     if not gait_manager.load_gait(gait_names[0]):
         log.error(f"Failed to load default gait: {gait_names[0]}")
