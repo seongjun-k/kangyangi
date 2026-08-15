@@ -286,7 +286,11 @@ void cameraTask(void* param) {
 // DMA 버퍼 512샘플 x 16bit x 2버퍼 -> 오디오는 16kHz*2byte=32KB/s로 카메라(수백KB/s
 // JPEG) 대비 대역폭이 미미하다. 버퍼 크기를 키울 이유가 없어 기본값 근처로 둔다.
 static const int MIC_SAMPLE_RATE = 16000;
-static const int MIC_DMA_BUF_LEN = 512;
+// I2S 내부 링버퍼는 setBufferSize()*(bits/8)*DMA_BUF_COUNT*2 바이트(I2S.cpp:297).
+// 512였을 때 4096B=128ms뿐이라 client.write()가 잠깐만 막혀도 오버플로로 샘플이
+// 조용히 버려졌다(_rx_done_routine의 xRingbufferSend는 타임아웃 0 — 꽉 차면 그냥 폐기).
+// 실측 데이터율이 기대치 31.2KB/s의 56%까지 떨어짐. 1024는 라이브러리 허용 최대값.
+static const int MIC_DMA_BUF_LEN = 1024;
 
 bool micInit() {
   // PDM RX 모드에서는 클럭이 ws(fs) 슬롯으로 출력된다(번들 I2S 라이브러리
@@ -308,6 +312,16 @@ void handleMicClient() {
   client.println();
 
   uint8_t buf[MIC_DMA_BUF_LEN * 2];  // 16bit 샘플 -> 2byte
+
+  // 접속이 없는 동안에도 I2S는 계속 돌아 링버퍼를 채우고, 아무도 안 읽으므로
+  // 항상 꽉 찬 상태로 방치된다. 그대로 스트리밍을 시작하면 (1) 푸시투토크를 누르기
+  // 전의 묵은 오디오가 먼저 나가고 (2) 링이 포화 상태라 생산자가 계속 폐기 중인
+  // 상태에서 출발한다. 새 클라이언트마다 고인 데이터를 비우고 시작한다.
+  // available()은 링에 든 바이트 수라 비어 있으면 즉시 0 — read()의 1초 블로킹을 안 탄다.
+  while (I2S.available() > 0) {
+    if (I2S.read(buf, sizeof(buf)) <= 0) break;
+  }
+
   while (client.connected()) {
     // checkSafety/processDxlQueue 호출 없음: 카메라 태스크와 동일하게 모션 처리는
     // loop() 태스크(core 1)가 독립적으로 담당한다. client.write가 블로킹돼도
