@@ -249,22 +249,34 @@ void handleCameraClient() {
   client.println("Content-Type: multipart/x-mixed-replace; boundary=frame");
   client.println();
 
+  int fbFailures = 0;
   while (client.connected()) {
     // checkSafety/processDxlQueue 호출 없음: 카메라는 전용 태스크(core 0)로 분리되어
     // 더 이상 loop()를 점유하지 않는다 — 모션/안전 정지는 loop 태스크(core 1)가
     // 독립적으로 최대 속도로 처리한다. Dynamixel UART 접근은 여전히 loop 태스크
     // 한 곳(processDxlQueue)에서만 이루어진다.
     camera_fb_t* fb = esp_camera_fb_get();
-    if (!fb) break;
+    if (!fb) {
+      // 일시적 캡처 실패로 세션을 끊으면 브라우저가 스스로 복구하지 못한다
+      // (<img> MJPEG은 자동 재연결이 없다). 몇 번은 참고 계속 간다.
+      if (++fbFailures > 5) break;
+      vTaskDelay(pdMS_TO_TICKS(20));
+      continue;
+    }
+    fbFailures = 0;
 
+    size_t len = fb->len;
     client.println("--frame");
     client.println("Content-Type: image/jpeg");
-    client.printf("Content-Length: %u\r\n\r\n", fb->len);
-    client.write(fb->buf, fb->len);
-    client.println();
+    client.printf("Content-Length: %u\r\n\r\n", len);
+    size_t sent = client.write(fb->buf, len);
     esp_camera_fb_return(fb);
+    client.println();
 
-    if (!client.connected()) break;
+    // 부분 전송이면 멀티파트 경계가 깨져 브라우저가 이후 프레임을 영영 못 만든다.
+    // 그대로 계속 보내면 "TCP는 살아있는데 화면만 멈춘" 상태가 되고 브라우저의
+    // onerror도 안 뜬다 — 끊어서 재연결로 복구되게 한다.
+    if (sent != len || !client.connected()) break;
   }
   client.stop();
 }
@@ -346,6 +358,19 @@ void micTask(void* param) {
 // ============================================================================
 void setup() {
   Serial.begin(115200);
+
+  // 점프/보행 중 토크가 죽고 보드가 재부팅되는 현상의 원인 구분용.
+  // BROWNOUT = 전원 새그(모터 피크 전류), PANIC/WDT = 펌웨어 크래시,
+  // POWERON = 실제 전원 끊김(커넥터/배터리). 원인마다 대책이 완전히 다르다.
+  esp_reset_reason_t rr = esp_reset_reason();
+  const char* rrName =
+      rr == ESP_RST_BROWNOUT ? "BROWNOUT(전원 새그)" :
+      rr == ESP_RST_POWERON  ? "POWERON(전원 인가/끊김)" :
+      rr == ESP_RST_PANIC    ? "PANIC(크래시)" :
+      rr == ESP_RST_INT_WDT  ? "INT_WDT" :
+      rr == ESP_RST_TASK_WDT ? "TASK_WDT" :
+      rr == ESP_RST_SW       ? "SW(소프트 리셋)" : "기타";
+  Serial.printf("\n[BOOT] reset reason = %d (%s)\n", (int)rr, rrName);
 
   // Dynamixel half-duplex UART: RX=D7, TX=D6 (D라벨 고정)
   Serial1.begin(1000000, SERIAL_8N1, DXL_RX_PIN, DXL_TX_PIN);

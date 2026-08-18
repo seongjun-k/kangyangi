@@ -78,6 +78,11 @@ void q8Dynamixel::enableTorque(){
   for (int i = 0; i < _idCount; i++){
     int32_t hwerr = _dxl.readControlTableItem(HARDWARE_ERROR_STATUS, _DXL[i]);
     if (hwerr > 0){
+      // 어떤 에러로 래치됐는지 남긴다 — bit0=입력전압, bit2=과열, bit5=과부하.
+      // 점프/보행 중 토크가 죽는 원인이 전원 새그인지 과부하인지 이걸로 갈린다.
+      int32_t volt = _dxl.readControlTableItem(PRESENT_INPUT_VOLTAGE, _DXL[i]);
+      Serial.printf("[DXL] ID%d 에러 래치 HWERR=0x%02lX V=%.1f -> reboot\n",
+                    _DXL[i], (long)hwerr, volt / 10.0);
       _dxl.reboot(_DXL[i]);
       rebooted = true;
     }
