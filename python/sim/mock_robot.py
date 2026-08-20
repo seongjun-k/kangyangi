@@ -3,10 +3,15 @@
 검증하기 위한 시뮬레이터. 패킷 포맷·안전 규칙은 docs/protocol.md(SSoT)를 그대로 재현한다.
 '''
 
+import os
 import socket
 import struct
+import sys
 import threading
 import time
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "q8bot"))  # 단독 실행 시에도 import 가능하도록
+from udp_link import ZERO_OFFSET, xor_checksum  # noqa: E402 (SSoT: python/q8bot/udp_link.py)
 
 MOTION_LEN = 21
 CMD_LEN = 3
@@ -17,20 +22,13 @@ CMD_JUMP = 4
 NO_RECV_TIMEOUT = 0.5  # 500ms 무수신 시 torque off (protocol.md 안전 규칙)
 
 
-def _xor_checksum(data):
-    checksum = 0
-    for b in data:
-        checksum ^= b
-    return checksum
-
-
 class MockRobot:
     '''UDP 8888 수신 -> 패킷 검증 -> 관절/토크 상태 갱신. 스레드로 백그라운드 실행.'''
 
     def __init__(self, ip="127.0.0.1", port=8888):
         self.ip = ip
         self.port = port
-        self.joint_ticks = [4096] * 8  # ID 11-18 순서, ZERO_OFFSET=4096 기본값(docs/protocol.md SSoT)
+        self.joint_ticks = [ZERO_OFFSET] * 8  # ID 11-18 순서, 수신 전 표시용 초기값(SSoT: udp_link.ZERO_OFFSET)
         self.torque_on = False
         self.last_seq = None
         self.last_recv_time = None
@@ -83,7 +81,7 @@ class MockRobot:
 
     def _handle_motion(self, data):
         body, checksum = data[:20], data[20]
-        if _xor_checksum(body) != checksum:
+        if xor_checksum(body) != checksum:
             self.checksum_errors += 1
             print("[mock_robot] 모션 패킷 체크섬 불일치 -> 폐기")
             return
@@ -105,7 +103,7 @@ class MockRobot:
 
     def _handle_cmd(self, data):
         body, checksum = data[:2], data[2]
-        if _xor_checksum(body) != checksum:
+        if xor_checksum(body) != checksum:
             self.checksum_errors += 1
             print("[mock_robot] 커맨드 패킷 체크섬 불일치 -> 폐기")
             return
@@ -129,7 +127,7 @@ class MockRobot:
 
 
 if __name__ == "__main__":
-    # 단독 실행: operate.py --ip 127.0.0.1 통합 테스트용 가짜 로봇
+    # 단독 실행: web_operate.py --ip 127.0.0.1 통합 테스트용 가짜 로봇
     import time
     robot = MockRobot()
     robot.start()

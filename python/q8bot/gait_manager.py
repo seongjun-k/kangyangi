@@ -6,13 +6,7 @@ This module manages gait trajectories, movement state, and direction switching
 for cyclic locomotion patterns.
 '''
 
-from gait_generator import (
-    generate_trot_trajectories,
-    generate_walk_trajectories,
-    generate_bound_trajectories,
-    generate_pronk_trajectories,
-    generate_crawl_trajectories
-)
+from gait_generator import generate_gait_trajectories, generate_crawl_trajectories
 
 
 # Gait parameters dictionary
@@ -56,17 +50,24 @@ class GaitManager:
         'br': ['b'],
     }
 
-    def __init__(self, leg, available_gaits=None):
+    # stacktype -> 생성기. trot/walk/bound/pronk는 gait_generator의 테이블 주도 공용 생성기 하나로 처리된다.
+    GENERATORS = {
+        'trot': generate_gait_trajectories,
+        'walk': generate_gait_trajectories,
+        'bound': generate_gait_trajectories,
+        'pronk': generate_gait_trajectories,
+        'crawl': generate_crawl_trajectories,
+    }
+
+    def __init__(self, leg):
         """
         Initialize the GaitManager.
 
         Args:
             leg: Kinematics solver instance
-            available_gaits: Optional dict of gait definitions (defaults to GAITS)
         """
         self.leg = leg
-        self.available_gaits = available_gaits if available_gaits else GAITS
-        self.current_trajectories = {}
+        self.current_trajectories = None
         self.current_gait = None
         self.current_direction = None
         self.phase_index = 0
@@ -83,30 +84,19 @@ class GaitManager:
         Returns:
             bool: True if successful, False otherwise
         """
-        if gait_name not in self.available_gaits:
+        if gait_name not in GAITS:
             return False
 
-        gait_params = self.available_gaits[gait_name]
-        stacktype = gait_params[0]
-
-        # Route to appropriate generator based on stacktype
-        if stacktype == 'trot':
-            trajectories = generate_trot_trajectories(self.leg, gait_params)
-        elif stacktype == 'walk':
-            trajectories = generate_walk_trajectories(self.leg, gait_params)
-        elif stacktype == 'bound':
-            trajectories = generate_bound_trajectories(self.leg, gait_params)
-        elif stacktype == 'pronk':
-            trajectories = generate_pronk_trajectories(self.leg, gait_params)
-        elif stacktype == 'crawl':
-            trajectories = generate_crawl_trajectories(self.leg, gait_params)
-        else:
+        gait_params = GAITS[gait_name]
+        generator = self.GENERATORS.get(gait_params[0])
+        if generator is None:
             return False
 
+        trajectories = generator(self.leg, gait_params)
         if trajectories is None:
             return False
 
-        self.current_trajectories = {gait_name: trajectories}
+        self.current_trajectories = trajectories
         self.current_gait = gait_name
         return True
 
@@ -120,10 +110,10 @@ class GaitManager:
         Returns:
             bool: True if movement started, False if trajectory not found
         """
-        if self.current_gait not in self.current_trajectories:
+        if self.current_trajectories is None:
             return False
 
-        gait_trajectories = self.current_trajectories[self.current_gait]
+        gait_trajectories = self.current_trajectories
 
         # Try exact match first
         if direction in gait_trajectories:

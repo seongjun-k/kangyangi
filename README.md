@@ -2,30 +2,29 @@
 
 Quadruped robot based on [q8bot](https://github.com/EricYufengWu/q8bot), ported to the Seeed XIAO ESP32-S3 Sense.
 
-The laptop does all the thinking (IK, gait generation, voice recognition) and streams raw joint ticks over WiFi UDP. The firmware is a thin, watchdog-protected servo driver.
+The laptop does all the thinking (IK, gait generation) and streams raw joint ticks over WiFi UDP. The firmware is a thin, watchdog-protected servo driver.
 
 ## Architecture
 
 ```
 Xbox controller ─USB─┐
                      ├─> laptop (Python)  ─WiFi UDP:8888─> XIAO ESP32-S3 (AP 192.168.4.1)
-browser :8080  ──────┘   IK + gait + STT                    │
+browser :8080  ──────┘   IK + gait                          │
                                                             └─UART half-duplex─> XL-330 x8 (ID 11–18)
 ```
 
 | Endpoint | Where | What |
 |---|---|---|
-| `http://localhost:8080/` | laptop | control UI (keyboard / gamepad / push-to-talk voice) |
+| `http://localhost:8080/` | laptop | control UI (keyboard / gamepad) |
 | `http://localhost:8080/calib` | laptop | joint zero-offset calibration wizard |
 | `http://192.168.4.1/` | robot | camera stream (QVGA MJPEG) |
-| `http://192.168.4.1:81/` | robot | microphone stream (raw PCM) |
 | `192.168.4.1:8888` | robot | UDP control — see [docs/protocol.md](docs/protocol.md) |
 
 The robot boots as a WiFi AP: SSID `kangyangi`, password `kangyangi`.
 
 ## Hardware
 
-- Seeed XIAO ESP32-S3 **Sense** (camera + mic expansion board required)
+- Seeed XIAO ESP32-S3 **Sense** (camera expansion board required)
 - 8x Dynamixel XL-330-M288-T, IDs **11–18**, 1 Mbps, protocol 2.0
 - Half-duplex TTL bus on `D6` (TX), `D7` (RX), direction on `D8`
 
@@ -45,7 +44,7 @@ Motor EEPROM setup (done once via the `dxltest` tool, see below):
 ```
 firmware/kangyangi/     main firmware (PlatformIO, Arduino framework)
 firmware/tools/dxltest/ standalone Dynamixel bus diagnostic / provisioning sketch
-python/q8bot/           control stack — web UI, IK, gait, UDP link, voice
+python/q8bot/           control stack — web UI, IK, gait, UDP link
 python/sim/             hardware-free simulator (mock firmware + matplotlib viz)
 docs/protocol.md        UDP packet format (SSoT)
 hardware/               Altium project, BOM, assembly guide (gitignored)
@@ -77,7 +76,7 @@ cd python/q8bot
                                         # --port 8080, --debug
 ```
 
-Use the venv's interpreter, not a bare `python3`. Voice recognition is behind an import guard, so a system interpreter without `vosk` starts the server normally and silently recognises nothing.
+Use the venv's interpreter, not a bare `python3`.
 
 Open `http://localhost:8080/`.
 
@@ -101,13 +100,11 @@ Recalibrate after any leg reassembly:
 | `A` / `D` | turn left / right | | `J` | jump |
 | `Q` / `E` | forward-left / forward-right | | `H` | greet |
 | `R` | reset | | `P` | paw |
-| `C` | show workspace range | | `V` | voice push-to-talk (hold) |
+| `C` | show workspace range | | | |
 
-The page must have focus for keys to register. An Xbox controller works through the browser Gamepad API with the same action mapping (RB = push-to-talk).
+The page must have focus for keys to register. An Xbox controller works through the browser Gamepad API with the same action mapping.
 
 Gaits: `TROT`, `TROT_HIGH`, `TROT_LOW`, `TROT_FAST`, `WALK`, `CRAWL`, `BOUND`, `PRONK`.
-
-Voice (Korean, offline via [vosk](https://alphacephei.com/vosk/), streamed from the robot's mic): 앞으로/전진, 뒤로/후진, 왼쪽, 오른쪽, 멈춰/정지, 인사, 앉아/쉬어, 일어나/준비, 점프/뛰어, 손. Sentences containing a negation are ignored entirely, and "점프"/"손" require an exact word match so that "손님" doesn't make the robot shake hands.
 
 ## Safety
 

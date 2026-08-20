@@ -15,7 +15,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "q8bot"))
 from kinematics_solver import k_solver  # noqa: E402
-from gait_generator import generate_trot_trajectories  # noqa: E402
+from gait_generator import generate_gait_trajectories  # noqa: E402
 from udp_link import q8_udp  # noqa: E402
 from gait_manager import GAITS  # noqa: E402
 
@@ -27,7 +27,7 @@ SIM_PORT = 8888
 
 def build_trajectory():
     leg = k_solver()
-    trajectories = generate_trot_trajectories(leg, GAITS["TROT"])
+    trajectories = generate_gait_trajectories(leg, GAITS["TROT"])
     if trajectories is None:
         raise RuntimeError("TROT 궤적 생성 실패 (IK 해 없음)")
     return trajectories["f"]  # 전진 1사이클 (n x 8, deg)
@@ -52,11 +52,7 @@ def main():
     robot = MockRobot(ip=SIM_IP, port=SIM_PORT).start()
     time.sleep(0.1)  # 수신 스레드 기동 대기
 
-    udp = q8_udp()
-    # udp_link.py 생성자에 대상 IP 인자가 없어(기본 192.168.4.1 고정) 인스턴스 속성을
-    # 직접 덮어써서 시뮬레이터 대상(127.0.0.1)으로 리다이렉트한다 (udp_link.py 미수정).
-    udp.ip = args.target_ip
-    udp.port = SIM_PORT
+    udp = q8_udp(ip=args.target_ip, port=SIM_PORT)
 
     trajectory = build_trajectory()
 

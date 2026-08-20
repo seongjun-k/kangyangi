@@ -1,14 +1,6 @@
 # Q8bot(강양이) Python Dependencies
 
-# Core scientific computing
-numpy>=1.26.2
-scipy>=1.11.4
-
-# 로봇 제어 UI는 웹(web_operate.py, 표준 라이브러리 http.server)로 통일 — pygame 불필요.
-# 통신은 표준 라이브러리 socket(UDP) 사용 — pyserial 불필요.
-
-# 음성인식(푸시투토크, voice.py) — 한국어 오프라인 STT
-vosk>=0.3.45
+# 로봇 제어(웹 UI, UDP 통신) 및 시뮬레이터만 필요. 외부 의존성 최소화(표준 라이브러리 사용).
 
 # 시뮬레이터(python/sim/viz.py) 실시간 애니메이션용
 matplotlib>=3.8.0

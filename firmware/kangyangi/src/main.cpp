@@ -4,9 +4,9 @@
 #include <esp_camera.h>
 #include <esp_wifi.h>
 #include <Dynamixel2Arduino.h>
-#include <I2S.h>  // arduino-esp32 3.x core: driver/i2s.h를 감싼 I2SClass(PDM RX 지원)
 
 #include "q8Dynamixel.h"
+#include "klog.h"
 #include "pinMapping.h"
 
 // ============================================================================
@@ -33,28 +33,35 @@
 #define CAM_PCLK_PIN    13
 
 // ============================================================================
-// XIAO ESP32S3 Sense 온보드 PDM 마이크 핀 (Sense 확장보드, Seeed 공식 문서 값)
-// GPIO41=DATA, GPIO42=CLK — 카메라 핀(10-18,38-40,47,48)과 Dynamixel D6/D7(=43/44)
-// 어느 것과도 겹치지 않음.
-// ============================================================================
-#define MIC_DATA_PIN    41
-#define MIC_CLK_PIN     42
-
-// ============================================================================
 // 전역 객체
 // ============================================================================
 Dynamixel2Arduino q8dxl(Serial1, DXL_DIR_PIN);
 q8Dynamixel       q8(q8dxl);
 AsyncUDP          udp;
 WiFiServer        camServer(80);
-WiFiServer        micServer(81);
 
 // cameraReady/camServer: 카메라 전용 태스크(core 0)에서만 접근 — setup()에서 초기화 후
 // cameraTask 시작, loop()/motor 경로는 더 이상 참조하지 않는다.
-bool cameraReady = false;
+// ============================================================================
+// 진단 로그: 시리얼 + UDP 브로드캐스트(192.168.4.255:9999)
+// 모터 전원이 켜져 있으면 USB가 열거되지 않아(klog.h 주석 참고) 시리얼만으로는
+// 구동 중 로그를 볼 수 없다.
+// ============================================================================
+void klog(const char* fmt, ...) {
+  char buf[192];
+  va_list ap;
+  va_start(ap, fmt);
+  int n = vsnprintf(buf, sizeof(buf), fmt, ap);
+  va_end(ap);
+  if (n <= 0) return;
+  if (n >= (int)sizeof(buf)) n = sizeof(buf) - 1;
 
-// micReady/micServer/I2S: 마이크 전용 태스크(core 0)에서만 접근 — cameraReady와 동일 패턴.
-bool micReady = false;
+  // USB 미연결 시 write가 막힐 수 있어 연결 여부를 확인하고 쓴다.
+  if (Serial) Serial.write((const uint8_t*)buf, n);
+  udp.broadcastTo((uint8_t*)buf, n, KLOG_PORT);
+}
+
+bool cameraReady = false;
 
 // 안전 정지 상태 (500ms 무수신 시 torque off 1회)
 // lastValidPacketMs: WiFi 콜백 태스크(쓰기)와 loop 태스크(읽기)가 공유 -> volatile 유지
@@ -149,6 +156,9 @@ void checkSafety() {
   if (!torqueSafetyTripped && millis() - lastValidPacketMs > 500) {
     q8.disableTorque();
     torqueSafetyTripped = true;
+    // 로그만으로 "통신 끊겨 안전정지"와 "보드 재부팅"을 구분할 수 있어야 한다.
+    // 재부팅이면 이 줄 없이 [BOOT]가 바로 나온다.
+    klog("[SAFE] t=%lu 500ms 무수신 -> torque off\n", (unsigned long)millis());
   }
 }
 
@@ -293,69 +303,6 @@ void cameraTask(void* param) {
 }
 
 // ============================================================================
-// 마이크 오디오 스트리밍 (raw PCM 16kHz/16bit/mono, 포트 81)
-// ============================================================================
-// DMA 버퍼 512샘플 x 16bit x 2버퍼 -> 오디오는 16kHz*2byte=32KB/s로 카메라(수백KB/s
-// JPEG) 대비 대역폭이 미미하다. 버퍼 크기를 키울 이유가 없어 기본값 근처로 둔다.
-static const int MIC_SAMPLE_RATE = 16000;
-// I2S 내부 링버퍼는 setBufferSize()*(bits/8)*DMA_BUF_COUNT*2 바이트(I2S.cpp:297).
-// 512였을 때 4096B=128ms뿐이라 client.write()가 잠깐만 막혀도 오버플로로 샘플이
-// 조용히 버려졌다(_rx_done_routine의 xRingbufferSend는 타임아웃 0 — 꽉 차면 그냥 폐기).
-// 실측 데이터율이 기대치 31.2KB/s의 56%까지 떨어짐. 1024는 라이브러리 허용 최대값.
-static const int MIC_DMA_BUF_LEN = 1024;
-
-bool micInit() {
-  // PDM RX 모드에서는 클럭이 ws(fs) 슬롯으로 출력된다(번들 I2S 라이브러리
-  // _applyPinSetting 매핑) — Seeed 공식 예제와 동일하게 (bck, ws, data_out,
-  // data_in, mck) 인자 순서 중 ws 자리에 CLK, data_in 자리에 DATA를 넣는다.
-  I2S.setAllPins(-1, MIC_CLK_PIN, MIC_DATA_PIN, -1, -1);
-  I2S.setBufferSize(MIC_DMA_BUF_LEN);
-  return I2S.begin(PDM_MONO_MODE, MIC_SAMPLE_RATE, 16) == 1;
-}
-
-void handleMicClient() {
-  if (!micReady) return;
-
-  WiFiClient client = micServer.available();
-  if (!client) return;  // 클라이언트 없음 -> I2S.read 호출 자체를 하지 않아 CPU/버스 낭비 없음
-
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-Type: audio/L16;rate=16000;channels=1");
-  client.println();
-
-  uint8_t buf[MIC_DMA_BUF_LEN * 2];  // 16bit 샘플 -> 2byte
-
-  // 접속이 없는 동안에도 I2S는 계속 돌아 링버퍼를 채우고, 아무도 안 읽으므로
-  // 항상 꽉 찬 상태로 방치된다. 그대로 스트리밍을 시작하면 (1) 푸시투토크를 누르기
-  // 전의 묵은 오디오가 먼저 나가고 (2) 링이 포화 상태라 생산자가 계속 폐기 중인
-  // 상태에서 출발한다. 새 클라이언트마다 고인 데이터를 비우고 시작한다.
-  // available()은 링에 든 바이트 수라 비어 있으면 즉시 0 — read()의 1초 블로킹을 안 탄다.
-  while (I2S.available() > 0) {
-    if (I2S.read(buf, sizeof(buf)) <= 0) break;
-  }
-
-  while (client.connected()) {
-    // checkSafety/processDxlQueue 호출 없음: 카메라 태스크와 동일하게 모션 처리는
-    // loop() 태스크(core 1)가 독립적으로 담당한다. client.write가 블로킹돼도
-    // 영향받는 것은 이 태스크(core 0)뿐이다.
-    int n = I2S.read(buf, sizeof(buf));
-    if (n <= 0) continue;
-    client.write(buf, n);
-    if (!client.connected()) break;
-  }
-  client.stop();
-}
-
-// 마이크 전용 FreeRTOS 태스크(core 0) — cameraTask와 동일한 패턴으로 core 1의
-// 모션 루프와 분리한다. 우선순위 낮게(tskIDLE_PRIORITY+1)두어 WiFi/lwIP를 방해하지 않는다.
-void micTask(void* param) {
-  for (;;) {
-    handleMicClient();
-    vTaskDelay(1);  // 접속 클라이언트 없을 때 바쁜 대기 방지, core 0 다른 태스크에 양보
-  }
-}
-
-// ============================================================================
 void setup() {
   Serial.begin(115200);
 
@@ -371,6 +318,7 @@ void setup() {
       rr == ESP_RST_TASK_WDT ? "TASK_WDT" :
       rr == ESP_RST_SW       ? "SW(소프트 리셋)" : "기타";
   Serial.printf("\n[BOOT] reset reason = %d (%s)\n", (int)rr, rrName);
+  // 이 시점엔 WiFi가 없어 UDP로 못 나간다 - softAP 기동 후 아래에서 다시 내보낸다.
 
   // Dynamixel half-duplex UART: RX=D7, TX=D6 (D라벨 고정)
   Serial1.begin(1000000, SERIAL_8N1, DXL_RX_PIN, DXL_TX_PIN);
@@ -392,16 +340,9 @@ void setup() {
   udp.listen(8888);
   udp.onPacket(onUdpPacket);
 
-  // 마이크 I2S를 반드시 카메라보다 먼저 init할 것 — 카메라 init 후 I2S.begin(PDM)이
-  // 실행되면 카메라 DMA가 멈춰 프레임이 나오지 않는다(2026-07-29 실기 분리 테스트로 확인).
-  micReady = micInit();
-  if (micReady) {
-    micServer.begin();
-    // 스택 8192: cameraTask와 동일 근거(WiFiClient/printf 경로 포함 시 4096 여유 불확실)
-    xTaskCreatePinnedToCore(micTask, "mic", 8192, NULL, tskIDLE_PRIORITY + 1, NULL, 0);
-  } else {
-    Serial.println("[MIC] init failed - mic disabled, motor/camera control continues");
-  }
+  // 재부팅 원인은 UDP 로그의 첫 줄로도 반드시 남아야 한다 - 모터 전원이 켜진
+  // 상태에선 위쪽 Serial 출력을 볼 방법이 없기 때문이다.
+  klog("[BOOT] reset reason = %d (%s)\n", (int)rr, rrName);
 
   cameraReady = cameraInit();
   if (cameraReady) {
@@ -417,6 +358,7 @@ void setup() {
 
 void loop() {
   checkSafety();
+  q8.telemetry();  // 자체적으로 20ms 간격 조절 — 모션 주기에 영향 없음
   bool processed = processDxlQueue();
   if (!processed) delay(1);  // 큐가 빌 때만 idle 태스크에 양보(와치독 여유), 있으면 최대 속도 유지
 }

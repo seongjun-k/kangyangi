@@ -1,10 +1,8 @@
 '''
 Written by yufeng.wu0902@gmail.com (원본 espnow.py 기반)
 
-espnow.py(시리얼)를 대체. Q8bot 노트북 제어 측에서 XIAO ESP32-S3(AP 192.168.4.1:8888)로
-UDP를 통해 모션/커맨드 패킷을 전송한다. 패킷 포맷은 docs/protocol.md(SSoT)를 따른다.
-공개 API(enable_torque, disable_torque, move_all, move_mirror, send_jump 등)는
-q8_espnow과 동일하게 유지해 operate.py 등 호출부 수정을 최소화한다.
+Q8bot 노트북 제어 측에서 XIAO ESP32-S3(AP 192.168.4.1:8888)로 UDP를 통해
+모션/커맨드 패킷을 전송. 패킷 포맷은 docs/protocol.md(SSoT)를 따른다.
 '''
 
 import json
@@ -26,8 +24,7 @@ CMD_TORQUE_ON = 1
 CMD_JUMP = 4
 
 # deg -> Dynamixel raw tick(0-4095, 단일 회전 Position 모드) 변환 계수.
-# 원본 espnow.py의 deg2dxl 로직을 이식했으나 GEAR_RATIO 값은
-# control_config.py/helpers.py 어디에도 정의되어 있지 않았음(원본에서도 미사용 dead code).
+# GEAR_RATIO는 1.0으로 고정(원본 코드베이스에서 실제로 사용되지 않음).
 # ZERO_OFFSET=1024는 펌웨어 q8Dynamixel.h:51 _zeroOffset과 일치(SSoT)이자
 # calibration.json 미존재 시(실측 보정 전) 기본값. Extended Position 모드는 전원 손실 시
 # 멀티턴 카운터가 리셋되어 재부팅 후 모터가 풀턴 하는 문제가 있어 단일 회전 모드로 변경(2026-07-31).
@@ -36,6 +33,14 @@ ZERO_OFFSET = 1024
 
 # 캘리브레이션 마법사(web_operate.py /calib)가 저장하는 관절별 실측 오프셋 파일.
 CALIBRATION_FILE = Path(__file__).parent / "calibration.json"
+
+
+def xor_checksum(data):
+    # 모션/커맨드 패킷 공통 체크섬(protocol.md) - mock_robot.py도 이 함수를 사용(SSoT)
+    checksum = 0
+    for b in data:
+        checksum ^= b
+    return checksum
 
 
 def load_zero_offsets():
@@ -97,10 +102,7 @@ class q8_udp:
     def _send_cmd(self, cmd):
         # 커맨드 패킷(3B): magic, cmd, checksum
         body = bytes([CMD_MAGIC, cmd])
-        checksum = 0
-        for b in body:
-            checksum ^= b
-        return self._send(body + bytes([checksum]))
+        return self._send(body + bytes([xor_checksum(body)]))
 
     def enable_torque(self):
         self.torque_on = True
@@ -136,10 +138,7 @@ class q8_udp:
         try:
             seq = self._next_seq()
             body = struct.pack("<H8HH", seq, *ticks, dur)  # seq(2B) + tick*8(16B) + dur(2B)
-            checksum = 0
-            for b in body:
-                checksum ^= b
-            ok = self._send(body + bytes([checksum]))
+            ok = self._send(body + bytes([xor_checksum(body)]))
         except struct.error:
             return False
         if ok:

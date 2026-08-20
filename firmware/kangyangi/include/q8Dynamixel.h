@@ -16,50 +16,40 @@ class q8Dynamixel
   public:
     q8Dynamixel(Dynamixel2Arduino& dxl);
     void begin();
-    bool checkComms(uint8_t ID);
-    bool commStart();
-    uint16_t checkBattery();
     void enableTorque();
     void disableTorque();
-    void toggleTorque(bool flag);
-    void resetTorqueState();  // Reset internal torque flag without changing hardware state
     void setOpMode();
     void setProfile(uint16_t dur);
     void ensureProfile(uint16_t dur);
     void setGain(uint16_t p_gain);
-    void moveSingle(int32_t val);
     void bulkWrite(int32_t values[8]);
     void jump();
-    uint8_t parseData(const char* myData);
+    void telemetry();                  // 전압 표본화 + 1초 요약 (loop와 jump 양쪽에서 호출)
+    void telemetryDelay(uint32_t ms);  // delay() 대체 — 대기 중에도 전압을 표본화한다
 
   private:
     Dynamixel2Arduino& _dxl; // Member variable to store the object of Dynamixel2Arduino
 
     const uint8_t BROADCAST_ID = 254;
-    const uint16_t SR_START_ADDR = 126; //Present current, then velocity and position
-    const uint16_t SR_ADDR_LEN = 10;
-    const uint16_t SW_START_ADDR = 116; //Goal position
-    const uint16_t SW_ADDR_LEN = 4;
 
     uint32_t _baudrate = 1000000;
     float _protocolVersion = 2.0;
     static const uint8_t _idCount = 8;
     const uint8_t _DXL[_idCount] = {11, 12, 13, 14, 15, 16, 17, 18};  // 모터 ID 설정 시 동일 번호로 부여할 것
-    const uint8_t _directionPin = 8;
-    static const uint16_t _user_pkt_buf_cap = 128;
-    uint8_t _user_pkt_buf[_user_pkt_buf_cap];
     // 단일 회전 Position 모드(0~4095) 안에서 관절 실사용 범위(-40~220도)가
     // 전부 들어오도록 중앙을 1024로 잡음(협의 SSoT: docs/protocol.md, python ZERO_OFFSET과 일치).
     const int16_t _zeroOffset = 1024;
     const uint8_t _gearRatio = 1;
-    int32_t _posArray[8];
-    uint16_t _profile = 0;
     uint16_t _prevProfile = 1000;  // begin()의 setProfile(1000)과 일치시켜 초기 비교값을 정의(기존엔 미초기화였음)
-    bool _torqueFlag = false;
-    bool _prevTorqueFlag = false;
-    uint8_t _specialCmd = 0;
+    // 재부팅 원인 규명용 텔레메트리 상태 (loop 태스크에서만 접근)
+    // XL-330-M288 동작 범위 3.7~6.0V, 권장 5.0V. 4.5V 아래면 레일이 무너지는 중이고
+    // 같은 레일에서 급전받는 XIAO가 브라운아웃될 위험 구간이다.
+    static constexpr float _telemAlarm = 4.5f;
+    uint32_t _telemLastSample = 0;
+    uint32_t _telemLastReport = 0;
+    float _telemMin = 99.0f;
+
     int32_t _deg2Dxl(float deg);
-    float _dxl2Deg(int32_t dxlRaw);
     void expandArrays();
     const float _idlePos[2]   = {30, 150};
     int32_t _idleArray[8];
@@ -70,37 +60,14 @@ class q8Dynamixel
     const float _jumpRest[2]  = {30, 150};
     int32_t _restArray[8];
 
-    // Struct definitions for br (bulk read) and bw (bulk write)
-    struct br_data_xel{
-      int32_t present_position;
-    } __attribute__((packed));
+    // Struct definitions for bw (bulk write)
     struct bw_data_xel{
       int32_t goal_position;
     } __attribute__((packed));
 
-    // Struct definitions for sr (sync read) and sw (sync write)
-    typedef struct sr_data{
-      int16_t present_current;
-      int32_t present_velocity;
-      int32_t present_position;
-    } __attribute__((packed)) sr_data_t;
-    typedef struct sw_data{
-      int32_t goal_position;
-    } __attribute__((packed)) sw_data_t;
-
-    struct br_data_xel _br_data_xel[_idCount];
-    DYNAMIXEL::InfoBulkReadInst_t _br_infos;
-    DYNAMIXEL::XELInfoBulkRead_t _info_xels_br[_idCount];
     struct bw_data_xel _bw_data_xel[_idCount];
     DYNAMIXEL::InfoBulkWriteInst_t _bw_infos;
     DYNAMIXEL::XELInfoBulkWrite_t _info_xels_bw[_idCount];
-
-    sr_data_t _sr_data[_idCount];
-    DYNAMIXEL::InfoSyncReadInst_t _sr_infos;
-    DYNAMIXEL::XELInfoSyncRead_t _info_xels_sr[_idCount];
-    sw_data_t _sw_data[_idCount];
-    DYNAMIXEL::InfoSyncWriteInst_t _sw_infos;
-    DYNAMIXEL::XELInfoSyncWrite_t _info_xels_sw[_idCount];
 };
 
 #endif

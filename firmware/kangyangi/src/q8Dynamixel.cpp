@@ -7,6 +7,7 @@
 #include <Arduino.h>
 #include <Dynamixel2Arduino.h>
 #include <q8Dynamixel.h>
+#include <klog.h>
 
 using namespace ControlTableItem;
 
@@ -37,37 +38,8 @@ void q8Dynamixel::begin(){
   }
   _bw_infos.is_info_changed = true;
 
-  // Fill the members of structure to fastSyncRead using external user packet buffer
-  _sr_infos.packet.buf_capacity = _user_pkt_buf_cap;
-  _sr_infos.packet.p_buf = _user_pkt_buf;
-  _sr_infos.packet.is_completed = false;
-  _sr_infos.addr = SR_START_ADDR;
-  _sr_infos.addr_length = SR_ADDR_LEN;
-  _sr_infos.p_xels = _info_xels_sr;
-  _sr_infos.xel_count = 0;
-
-  for(int i=0; i < _idCount; i++){
-    _info_xels_sr[i].id = _DXL[i];;
-    _info_xels_sr[i].p_recv_buf = (uint8_t*)&_sr_data[i];
-    _sr_infos.xel_count++;
-  }
-  _sr_infos.is_info_changed = true;
-
   setProfile(1000);
   expandArrays();
-}
-
-bool q8Dynamixel::checkComms(uint8_t ID){
-  return _dxl.ping(ID);
-}
-
-bool q8Dynamixel::commStart(){
-  // Replace this with an actual check of ESPNow comms later
-  return _torqueFlag;
-}
-
-uint16_t q8Dynamixel::checkBattery(){
-  return 1;
 }
 
 void q8Dynamixel::enableTorque(){
@@ -81,8 +53,8 @@ void q8Dynamixel::enableTorque(){
       // 어떤 에러로 래치됐는지 남긴다 — bit0=입력전압, bit2=과열, bit5=과부하.
       // 점프/보행 중 토크가 죽는 원인이 전원 새그인지 과부하인지 이걸로 갈린다.
       int32_t volt = _dxl.readControlTableItem(PRESENT_INPUT_VOLTAGE, _DXL[i]);
-      Serial.printf("[DXL] ID%d 에러 래치 HWERR=0x%02lX V=%.1f -> reboot\n",
-                    _DXL[i], (long)hwerr, volt / 10.0);
+      klog("[DXL] ID%d 에러 래치 HWERR=0x%02lX V=%.1f -> reboot\n",
+           _DXL[i], (long)hwerr, volt / 10.0);
       _dxl.reboot(_DXL[i]);
       rebooted = true;
     }
@@ -98,29 +70,15 @@ void q8Dynamixel::disableTorque(){
   _dxl.torqueOff(BROADCAST_ID);
 }
 
-void q8Dynamixel::toggleTorque(bool flag){
-  if(flag){
-    enableTorque();
-  } else{
-    disableTorque();
-  }
-}
-
-void q8Dynamixel::resetTorqueState(){
-  // Reset the internal torque flag to match disabled state
-  // Used after connection loss when torque was already disabled
-  _torqueFlag = false;
-}
-
 void q8Dynamixel::setOpMode(){
   // 관절 실사용 범위(약 260도, 4096틱=360도 이내)가 한 바퀴 안에 들어가므로
   // 멀티턴을 추적하는 Extended Position 대신 단일 회전 Position 모드를 쓴다.
   // 전원이 끊겨도 present position이 항상 물리 각도 그대로 복원되어
   // 재부팅 시 팬텀 풀턴이 발생하지 않는다.
   //
-  // ESP32만 재부팅되고 모터 전원은 유지될 수 있어 소프트웨어 _torqueFlag(항상 false로
-  // 시작)와 실제 하드웨어 Torque Enable 상태가 다를 수 있다. Operating Mode(EEPROM)는
-  // Torque Off 상태에서만 쓸 수 있으므로 플래그와 무관하게 항상 먼저 강제로 끈다.
+  // ESP32만 재부팅되고 모터 전원은 유지될 수 있어 실제 하드웨어 Torque Enable 상태를
+  // 소프트웨어가 알 수 없다. Operating Mode(EEPROM)는 Torque Off 상태에서만 쓸 수
+  // 있으므로 현재 상태와 무관하게 항상 먼저 강제로 끈다.
   disableTorque();
 
   // setOperatingMode()는 내부적으로 ping()이 채워주는 모델 번호 캐시를 참조한다.
@@ -129,9 +87,6 @@ void q8Dynamixel::setOpMode(){
   for (int i = 0; i < _idCount; i++){
     _dxl.ping(_DXL[i]);
     _dxl.setOperatingMode(_DXL[i], OP_POSITION);
-  }
-  if (_torqueFlag){
-    enableTorque();
   }
 }
 
@@ -157,16 +112,6 @@ void q8Dynamixel::setGain(uint16_t p_gain){
   }
 }
 
-void q8Dynamixel::moveSingle(int32_t val){
-  // 8 motors move to the same position
-  for (int i = 0; i < _idCount; i++){
-    _bw_data_xel[i].goal_position = val;
-  }
-  _bw_infos.is_info_changed = true;
-
-  _dxl.bulkWrite(&_bw_infos);
-}
-
 void q8Dynamixel::bulkWrite(int32_t values[8]){
   // 8 motors move to their respective positions
   for (int i = 0; i < _idCount; i++){
@@ -177,73 +122,70 @@ void q8Dynamixel::bulkWrite(int32_t values[8]){
   _dxl.bulkWrite(&_bw_infos);
 }
 
-void q8Dynamixel::jump(){
-  // Crouching Position
-  setProfile(500);
-  delay(100);
-  bulkWrite(_lowArray);
-  delay(1000);
+// 재부팅 원인(브라운아웃 vs 크래시) 규명용 텔레메트리.
+// 모터 입력전압 = DXL_P2 레일 전압이고, XIAO도 D2 숏키를 거쳐 같은 레일에서 급전받는다.
+// 여기서 새그가 잡히면 재부팅 원인이 전원으로 확정된다.
+// 1초 요약만으로는 수십 ms짜리 새그를 놓치므로 20ms마다 표본화해 최저치를 남긴다.
+void q8Dynamixel::telemetry(){
+  uint32_t now = millis();
+  if (now - _telemLastSample < 20) return;
+  _telemLastSample = now;
 
-  // Jump
-  setProfile(0);
-  setGain(800);
-  delay(100);
-  bulkWrite(_highArray);
-  delay(100);
-  bulkWrite(_restArray);
-  delay(5000);
+  // 1개만 읽는다 — 8개 전부 읽으면 UART 시간을 먹어 모션 주기가 흔들린다.
+  int32_t raw = _dxl.readControlTableItem(PRESENT_INPUT_VOLTAGE, _DXL[0]);
+  if (raw <= 0) return;  // 통신 실패(모터 전원 off 등)는 다음 표본에서 재시도
+  float v = raw / 10.0f;
+  if (v < _telemMin) _telemMin = v;
 
-  // Back to idle
-  setProfile(500);
-  delay(100);
-  bulkWrite(_idleArray);
-  delay(1000);
-  _prevProfile = 500;
+  // 위험 전압은 1초 요약을 기다리지 않고 즉시 내보낸다.
+  // 브라운아웃으로 리셋되면 아직 안 나간 출력은 그대로 사라지기 때문이다.
+  if (v < _telemAlarm){
+    klog("[TLM] t=%lu V=%.1f *** 전압 새그 ***\n", (unsigned long)now, v);
+    return;
+  }
+
+  if (now - _telemLastReport >= 1000){
+    _telemLastReport = now;
+    klog("[TLM] t=%lu V=%.1f min=%.1f\n", (unsigned long)now, v, _telemMin);
+    _telemMin = 99.0f;
+  }
 }
 
-uint8_t q8Dynamixel::parseData(const char* myData) {
-  char* token = strtok(const_cast<char*>(myData), ",");
-  int index = 0;
-  int check = 0;
+// jump()처럼 loop를 독점하는 구간에서 delay() 대신 쓴다 — 정작 전류 피크가 걸리는
+// 그 시간 동안 표본이 하나도 안 남으면 텔레메트리의 의미가 없다.
+void q8Dynamixel::telemetryDelay(uint32_t ms){
+  uint32_t start = millis();
+  while (millis() - start < ms){
+    telemetry();
+    delay(1);
+  }
+}
 
-  while (token != nullptr && index < 8) {  // First 8 contain joint positions
-    _posArray[index++] = _deg2Dxl(std::atof(token));
-    token = strtok(nullptr, ",");
-  }
-  if (token != nullptr) {                  // 9th value is for special token
-    _specialCmd = std::atoi(token);
-    token = strtok(nullptr, ",");
-    if (_specialCmd == 1){           // Battery
-      return 1;
-    } else if (_specialCmd == 2){    // Record
-      check = 2;
-    } else if (_specialCmd == 3){    // Send recorded
-      return 3;
-    } else if (_specialCmd == 4){    // Jump
-      jump();
-      return 0;
-    }
-  }
-  if (token != nullptr) {                   // 10th value is vel/acc profiles
-    _profile = std::atoi(token);
-    token = strtok(nullptr, ",");
-    if (_profile != _prevProfile){
-      Serial.print("[ROBOT] Profile changed: "); Serial.println(_profile);
-      setProfile(_profile);
-      _prevProfile = _profile;
-    }
-  }
-  if (token != nullptr) {                    // 1th value is torque enable/disable
-    _torqueFlag = (std::atoi(token) == 1);
-    if (_torqueFlag != _prevTorqueFlag){
-      Serial.println(_torqueFlag ? "[ROBOT] Torque on" : "[ROBOT] Torque off");
-      toggleTorque(_torqueFlag);
-      _prevTorqueFlag = _torqueFlag;
-      return 0;
-    }
-  }
-  bulkWrite(_posArray);
-  return check - 0;
+void q8Dynamixel::jump(){
+  // 단계 로그 + flush — 재부팅이 어느 단계에서 터지는지가 원인 판별의 핵심이다.
+  // 도약(setProfile(0)+gain 800)이 전류 피크 지점이라 여기서 끊기면 전원이 범인.
+  klog("[JUMP] 1/3 웅크리기\n");
+  setProfile(500);
+  telemetryDelay(100);
+  bulkWrite(_lowArray);
+  telemetryDelay(1000);
+
+  klog("[JUMP] 2/3 도약(전류 피크)\n");
+  setProfile(0);
+  setGain(800);
+  telemetryDelay(100);
+  bulkWrite(_highArray);
+  telemetryDelay(100);
+  bulkWrite(_restArray);
+  telemetryDelay(5000);
+
+  klog("[JUMP] 3/3 복귀\n");
+  setProfile(500);
+  telemetryDelay(100);
+  bulkWrite(_idleArray);
+  telemetryDelay(1000);
+  _prevProfile = 500;
+  klog("[JUMP] 완료\n");
 }
 
 int32_t q8Dynamixel::_deg2Dxl(float deg){
@@ -253,28 +195,15 @@ int32_t q8Dynamixel::_deg2Dxl(float deg){
   return angleDxl;
 }
 
-float q8Dynamixel::_dxl2Deg(int32_t dxlRaw){
-  // Dynamixel joint 0 to 360 deg is 0 to 4096
-  const float friendlyPerDxl = 360.0 / 4096.0 / _gearRatio;
-  float angleFriendly = (dxlRaw - _zeroOffset) * friendlyPerDxl;
-  return angleFriendly;
-}
-
 void q8Dynamixel::expandArrays(){
-  for (int i = 0; i < 4; i++){
-    _idleArray[i*2] = _deg2Dxl(_idlePos[0]);
-    _idleArray[i*2+1] = _deg2Dxl(_idlePos[1]);
-  }
-  for (int i = 0; i < 4; i++){
-    _lowArray[i*2] = _deg2Dxl(_jumpLow[0]);
-    _lowArray[i*2+1] = _deg2Dxl(_jumpLow[1]);
-  }
-  for (int i = 0; i < 4; i++){
-    _highArray[i*2] = _deg2Dxl(_jumpHigh[0]);
-    _highArray[i*2+1] = _deg2Dxl(_jumpHigh[1]);
-  }
-  for (int i = 0; i < 4; i++){
-    _restArray[i*2] = _deg2Dxl(_jumpRest[0]);
-    _restArray[i*2+1] = _deg2Dxl(_jumpRest[1]);
+  // _idlePos/_jumpLow/_jumpHigh/_jumpRest 각각 값이 다를 수 있어 배열은 따로 두되,
+  // 채우는 방식(4쌍 반복)만 테이블로 묶는다.
+  const float* srcs[4] = {_idlePos, _jumpLow, _jumpHigh, _jumpRest};
+  int32_t* dsts[4] = {_idleArray, _lowArray, _highArray, _restArray};
+  for (int a = 0; a < 4; a++){
+    for (int i = 0; i < 4; i++){
+      dsts[a][i*2] = _deg2Dxl(srcs[a][0]);
+      dsts[a][i*2+1] = _deg2Dxl(srcs[a][1]);
+    }
   }
 }
