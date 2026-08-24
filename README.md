@@ -42,6 +42,7 @@ Motor EEPROM setup (done once via the `dxltest` tool, see below):
 ## Repo layout
 
 ```
+run.py                  cross-platform launcher for the control server
 firmware/kangyangi/     main firmware (PlatformIO, Arduino framework)
 firmware/tools/dxltest/ standalone Dynamixel bus diagnostic / provisioning sketch
 python/q8bot/           control stack — web UI, IK, gait, UDP link
@@ -69,16 +70,41 @@ Join the `kangyangi` WiFi network. The laptop keeps its normal internet connecti
 
 ### 3. Start the control server
 
+The control server uses **only the Python standard library** — no `pip install`, no venv.
+`run.py` at the repo root is the cross-platform launcher; it opens the browser for you.
+
 ```bash
-cd python/q8bot
-../../.venv/bin/pip install -r ../requirements.txt
-../../.venv/bin/python web_operate.py   # --ip 127.0.0.1 to target the simulator
-                                        # --port 8080, --debug
+python3 run.py            # Linux / macOS
+```
+```powershell
+py run.py                 # Windows (or double-click run.py in Explorer)
 ```
 
-Use the venv's interpreter, not a bare `python3`.
+Options are passed straight through to `web_operate.py`:
 
-Open `http://localhost:8080/`.
+| Flag | Default | What |
+|---|---|---|
+| `--ip` | `192.168.4.1` | robot address — use `127.0.0.1` to drive the simulator |
+| `--port` | `8080` | web UI port |
+| `--debug` | off | verbose packet logging |
+| `--no-browser` | off | don't auto-open the browser (handled by `run.py`) |
+
+```bash
+python3 run.py --ip 127.0.0.1 --port 9000 --debug
+```
+
+Only the simulator's live animation needs a third-party package:
+
+```bash
+pip install -r python/requirements.txt   # matplotlib, for python/sim only
+```
+
+**Windows notes**
+
+- Install Python from [python.org](https://www.python.org/downloads/) with *"Add python.exe to PATH"* checked, or `winget install Python.Python.3.12`. The Microsoft Store build also works.
+- Windows Firewall will prompt on first run — allow it on **Private** networks, otherwise the browser can't reach the server and UDP to the robot is blocked.
+- Join the `kangyangi` WiFi network; Windows will report "No internet", which is expected.
+- Stop the server with `Ctrl+C` in the terminal. Closing the window also drops torque within 500 ms (firmware watchdog).
 
 ## Calibration
 
