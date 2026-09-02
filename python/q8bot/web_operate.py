@@ -249,7 +249,8 @@ def calib_send_loop(calib_state, q8, stop_event):
     while not stop_event.is_set():
         active, ticks = calib_state.snapshot()
         if active:
-            q8.send_raw_ticks(ticks)
+            # force=True: 값이 안 변해도 반드시 실제 송신해야 한다 - 이 재송신이 워치독 급전이다.
+            q8.send_raw_ticks(ticks, force=True)
         time.sleep(interval)
 
 

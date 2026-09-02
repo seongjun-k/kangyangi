@@ -66,11 +66,12 @@ class q8_udp:
         self._seq_lock = threading.Lock()  # keepalive 스레드와 제어 루프가 동시 송신 시 seq 중복 방지
         self.zero_offsets = load_zero_offsets()
         self._last_motion = None  # (ticks, dur, 마지막 송신 시각) - keepalive가 재송신할 최근 모션
+        self._last_sent_payload = None  # (ticks, dur) - 직전에 실제로 송신 성공한 모션(중복 송신 판단용)
 
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
         # 펌웨어 500ms 무수신 워치독(docs/protocol.md 안전 규칙) 하에서 정지 자세를 유지하기 위한
-        # keepalive. 200Hz gait 스트리밍 중에는 마지막 송신이 0.15초를 넘지 않아 침묵한다.
+        # keepalive. 200Hz gait 스트리밍 중에는 마지막 송신이 0.1초를 넘지 않아 침묵한다.
         self._keepalive_thread = threading.Thread(target=self._keepalive_loop, daemon=True)
         self._keepalive_thread.start()
 
@@ -82,15 +83,17 @@ class q8_udp:
 
     def _keepalive_loop(self):
         while True:
-            time.sleep(0.1)
+            time.sleep(0.05)
             if not self.torque_on:  # 수동 torque off 의도 존중
                 continue
             last = self._last_motion
             if last is None:
                 continue
             ticks, dur, last_sent = last
-            if time.monotonic() - last_sent > 0.15:
-                self.send_raw_ticks(ticks, dur)  # 재송신이 _last_motion 타임스탬프를 자연히 갱신
+            if time.monotonic() - last_sent > 0.1:
+                # force=True: 동일 모션이라도 워치독 갱신을 위해 실제로 전송해야 한다.
+                # 재송신이 _last_motion 타임스탬프를 자연히 갱신한다.
+                self.send_raw_ticks(ticks, dur, force=True)
 
     def _send(self, payload):
         try:
@@ -132,9 +135,15 @@ class q8_udp:
             mirrored_pos.append(joint_pos[1])
         return self.move_all(mirrored_pos, dur, False)
 
-    def send_raw_ticks(self, ticks, dur=0):
+    def send_raw_ticks(self, ticks, dur=0, force=False):
         '''이미 계산된 tick 8개(ID 1-8 순서)를 그대로 모션 패킷으로 송신.
         캘리브레이션 마법사가 deg2dxl을 거치지 않고 직접 tick을 보낼 때도 사용.'''
+        payload = (list(ticks), dur)
+        if not force and payload == self._last_sent_payload:
+            # 정지 자세 유지 중 동일 모션이 200Hz로 반복 호출되는 걸 막는다(200pps -> keepalive 주기).
+            # _last_motion 타임스탬프는 갱신하지 않는다 - 갱신하면 keepalive가 영영 재송신하지 않아
+            # 펌웨어 500ms 워치독이 물린다.
+            return True
         try:
             seq = self._next_seq()
             body = struct.pack("<H8HH", seq, *ticks, dur)  # seq(2B) + tick*8(16B) + dur(2B)
@@ -144,6 +153,7 @@ class q8_udp:
         if ok:
             # 단일 속성 대입은 GIL로 원자적이라 락 불필요
             self._last_motion = (list(ticks), dur, time.monotonic())
+            self._last_sent_payload = payload
         return ok
 
     def deg2dxl(self, angle_friendly, joint_index=0):

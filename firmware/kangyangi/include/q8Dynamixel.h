@@ -47,6 +47,7 @@ class q8Dynamixel
     static constexpr float _telemAlarm = 4.5f;
     uint32_t _telemLastSample = 0;
     uint32_t _telemLastReport = 0;
+    uint32_t _telemBackoffUntil = 0;  // 읽기 실패 후 재시도 대기 마감 시각(ms)
     float _telemMin = 99.0f;
 
     int32_t _deg2Dxl(float deg);

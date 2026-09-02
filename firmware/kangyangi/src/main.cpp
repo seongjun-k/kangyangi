@@ -61,7 +61,15 @@ void klog(const char* fmt, ...) {
   udp.broadcastTo((uint8_t*)buf, n, KLOG_PORT);
 }
 
+// softAP 채널. 기본값 1은 주변 AP가 가장 붐비는 대역이라 UDP 유실의 직접 원인이 된다.
+// 2026-08-24 현장 스캔: ch1에 신호 100짜리 AP, ch11에 90, ch6은 최강 간섭원이 50 -> 6 선택.
+// 장소가 바뀌면 `nmcli dev wifi list --rescan yes`로 다시 재서 고를 것 - 측정 없이 바꾸면 악화된다.
+static const int AP_CHANNEL = 6;
+
 bool cameraReady = false;
+
+// 카메라가 airtime을 독점하면 UDP 모션 패킷이 유실돼 500ms 워치독이 물린다 — 20fps 상한
+static const uint32_t CAM_MIN_FRAME_INTERVAL_MS = 50;
 
 // 안전 정지 상태 (500ms 무수신 시 torque off 1회)
 // lastValidPacketMs: WiFi 콜백 태스크(쓰기)와 loop 태스크(읽기)가 공유 -> volatile 유지
@@ -255,16 +263,33 @@ void handleCameraClient() {
   WiFiClient client = camServer.available();
   if (!client) return;
 
-  client.println("HTTP/1.1 200 OK");
-  client.println("Content-Type: multipart/x-mixed-replace; boundary=frame");
-  client.println();
+  // 작은 write가 Nagle로 지연 결합되면 프레임 지연/버스트가 커진다.
+  client.setNoDelay(true);
+
+  // HTTP 응답 헤더를 한 번의 write로 합쳐 보낸다(기존엔 println() 3회 = TCP 세그먼트 최대 3개).
+  // 끝의 빈 줄(헤더/바디 구분 CRLF)은 아래 프레임 헤더의 선행 "\r\n"이 대신 제공한다 —
+  // 그래야 첫 프레임을 포함해 바이트 시퀀스가 기존과 동일하게 유지된다.
+  char httpHeader[128];
+  int hLen = snprintf(httpHeader, sizeof(httpHeader),
+      "HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\n");
+  // snprintf는 절단 시 "쓰였을 길이"를 반환한다 - 그대로 write에 넘기면 버퍼 밖을 읽는다.
+  if (hLen > (int)sizeof(httpHeader) - 1) hLen = sizeof(httpHeader) - 1;
+  client.write((const uint8_t*)httpHeader, hLen);
 
   int fbFailures = 0;
+  uint32_t lastFrameMs = millis() - CAM_MIN_FRAME_INTERVAL_MS;  // 첫 프레임은 지연 없이 전송
   while (client.connected()) {
     // checkSafety/processDxlQueue 호출 없음: 카메라는 전용 태스크(core 0)로 분리되어
     // 더 이상 loop()를 점유하지 않는다 — 모션/안전 정지는 loop 태스크(core 1)가
     // 독립적으로 최대 속도로 처리한다. Dynamixel UART 접근은 여전히 loop 태스크
     // 한 곳(processDxlQueue)에서만 이루어진다.
+
+    // 프레임 레이트 상한: UDP 모션 패킷과 airtime을 나눠 써야 한다(millis() 랩어라운드 안전 형태).
+    uint32_t now = millis();
+    if (now - lastFrameMs < CAM_MIN_FRAME_INTERVAL_MS) {
+      vTaskDelay(pdMS_TO_TICKS(CAM_MIN_FRAME_INTERVAL_MS - (now - lastFrameMs)));
+    }
+
     camera_fb_t* fb = esp_camera_fb_get();
     if (!fb) {
       // 일시적 캡처 실패로 세션을 끊으면 브라우저가 스스로 복구하지 못한다
@@ -275,13 +300,19 @@ void handleCameraClient() {
     }
     fbFailures = 0;
 
+    // 파트 헤더를 스택 버퍼 하나에 만들어 write 1회로 보낸다(기존엔 println() 2회 +
+    // printf 1회 = TCP 세그먼트 최대 3개). 선행 "\r\n"은 이전 프레임 바디 뒤의 구분자 역할
+    // (기존 코드의 client.println() 자리) — 이 CRLF가 어긋나면 멀티파트 경계가 깨져
+    // 브라우저가 이후 프레임을 영영 못 만든다.
     size_t len = fb->len;
-    client.println("--frame");
-    client.println("Content-Type: image/jpeg");
-    client.printf("Content-Length: %u\r\n\r\n", len);
+    char partHeader[128];
+    int pLen = snprintf(partHeader, sizeof(partHeader),
+        "\r\n--frame\r\nContent-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n", (unsigned)len);
+    if (pLen > (int)sizeof(partHeader) - 1) pLen = sizeof(partHeader) - 1;  // 위와 동일 이유
+    client.write((const uint8_t*)partHeader, pLen);
     size_t sent = client.write(fb->buf, len);
     esp_camera_fb_return(fb);
-    client.println();
+    lastFrameMs = millis();
 
     // 부분 전송이면 멀티파트 경계가 깨져 브라우저가 이후 프레임을 영영 못 만든다.
     // 그대로 계속 보내면 "TCP는 살아있는데 화면만 멈춘" 상태가 되고 브라우저의
@@ -333,16 +364,40 @@ void setup() {
     while (1) { delay(1000); }  // Dynamixel 직렬화 불가 상태로 동작 금지
   }
 
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP("kangyangi", "kangyangi");
+  // softAP는 조용히 실패한다(브라운아웃 직후 RF 캘리브레이션/NVS 접근 실패 등).
+  // 반환값을 안 보면 AP 없는 상태로 계속 돌아가 노트북이 영영 붙지 못한다.
+  // 스택을 완전히 내렸다가 재시도하고, 그래도 안 되면 재부팅이 유일한 복구 수단.
+  bool apUp = false;
+  for (int attempt = 1; attempt <= 3 && !apUp; attempt++) {
+    WiFi.mode(WIFI_AP);
+    apUp = WiFi.softAP("kangyangi", "kangyangi", AP_CHANNEL);
+    if (!apUp) {
+      Serial.printf("[WIFI] softAP 기동 실패 (%d/3)\n", attempt);
+      WiFi.mode(WIFI_OFF);
+      delay(500);
+    }
+  }
+  if (!apUp) {
+    Serial.println("[WIFI] softAP 기동 불가 - 재부팅");
+    Serial.flush();
+    delay(200);
+    ESP.restart();
+  }
   esp_wifi_set_ps(WIFI_PS_NONE);  // softAP 절전 해제 — UDP 모션 패킷 지연/지터 감소
 
-  udp.listen(8888);
+  // listen 실패 시 AP는 보이는데 제어만 안 먹는 상태가 된다 - 겉보기 정상이라 최악.
+  if (!udp.listen(8888)) {
+    Serial.println("[WIFI] UDP 8888 listen 실패 - 재부팅");
+    Serial.flush();
+    delay(200);
+    ESP.restart();
+  }
   udp.onPacket(onUdpPacket);
 
   // 재부팅 원인은 UDP 로그의 첫 줄로도 반드시 남아야 한다 - 모터 전원이 켜진
   // 상태에선 위쪽 Serial 출력을 볼 방법이 없기 때문이다.
   klog("[BOOT] reset reason = %d (%s)\n", (int)rr, rrName);
+  klog("[WIFI] AP up, ip=%s\n", WiFi.softAPIP().toString().c_str());
 
   cameraReady = cameraInit();
   if (cameraReady) {

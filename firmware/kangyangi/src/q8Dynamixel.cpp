@@ -129,11 +129,17 @@ void q8Dynamixel::bulkWrite(int32_t values[8]){
 void q8Dynamixel::telemetry(){
   uint32_t now = millis();
   if (now - _telemLastSample < 20) return;
+  // 백오프 중 — 20ms마다 재시도하면 UART 타임아웃으로 모션 주기가 흔들린다.
+  // millis() 랩어라운드 안전을 위해 부호 있는 차로 비교한다(now < until 직접 비교는 49.7일마다 깨진다).
+  if ((int32_t)(now - _telemBackoffUntil) < 0) return;
   _telemLastSample = now;
 
   // 1개만 읽는다 — 8개 전부 읽으면 UART 시간을 먹어 모션 주기가 흔들린다.
   int32_t raw = _dxl.readControlTableItem(PRESENT_INPUT_VOLTAGE, _DXL[0]);
-  if (raw <= 0) return;  // 통신 실패(모터 전원 off 등)는 다음 표본에서 재시도
+  if (raw <= 0) {
+    _telemBackoffUntil = now + 1000;  // 통신 실패(모터 전원 off 등) - 1초 후 재시도
+    return;
+  }
   float v = raw / 10.0f;
   if (v < _telemMin) _telemMin = v;
 
@@ -161,6 +167,14 @@ void q8Dynamixel::telemetryDelay(uint32_t ms){
   }
 }
 
+// 도약 P게인. 8개 모터가 setProfile(0)로 동시에 최대 출력을 내는 지점이라
+// 전체 소비 전류의 피크가 여기서 결정된다.
+// 2026-08-24 실측: gain 800에서 도약 100ms 후 모터 전압이 5.0V -> 3.3V로 붕괴,
+// 보드가 그 자리에서 브라운아웃(klog가 [JUMP] 3/3 전에 끊김). 800 -> 600으로 하향.
+// 근본 원인은 전원 계통(벌크 커패시터/배터리 방전율)이고 이건 완화책이다 —
+// 전원을 보강했으면 800으로 되돌려 점프 높이를 회복시킬 것.
+static const uint16_t JUMP_GAIN = 600;
+
 void q8Dynamixel::jump(){
   // 단계 로그 + flush — 재부팅이 어느 단계에서 터지는지가 원인 판별의 핵심이다.
   // 도약(setProfile(0)+gain 800)이 전류 피크 지점이라 여기서 끊기면 전원이 범인.
@@ -172,7 +186,7 @@ void q8Dynamixel::jump(){
 
   klog("[JUMP] 2/3 도약(전류 피크)\n");
   setProfile(0);
-  setGain(800);
+  setGain(JUMP_GAIN);
   telemetryDelay(100);
   bulkWrite(_highArray);
   telemetryDelay(100);
