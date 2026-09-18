@@ -13,7 +13,7 @@ from pathlib import Path
 
 from kinematics_solver import k_solver
 from udp_link import q8_udp, ROBOT_IP
-from gait_manager import GaitManager, GAITS
+from gait_manager import GaitManager, GAITS, advance_phase
 from routine_generator import show_range, greet, paw
 
 CENTER_DIST = 19.5
@@ -314,6 +314,10 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
     movement = False
     prev_jump = prev_greet = prev_paw = False
     tick_interval = 1.0 / SPEED
+    # 게이트 위상은 루프 반복 횟수가 아니라 경과 시간으로 진행한다. 반복 횟수 기준이면
+    # 루프가 밀리는 만큼(폰에서 200->150Hz) 보행 속도가 같이 느려져 꺼덕거렸다.
+    phase_accum = 0.0
+    last_phase = time.monotonic()
 
     while not stop_event.is_set():
         loop_start = time.monotonic()
@@ -339,7 +343,9 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
             direction = get_movement_direction(keys, axes)
             if direction:
                 if gait_manager.start_movement(direction):
-                    pos = gait_manager.tick()
+                    steps, phase_accum = advance_phase(phase_accum, loop_start - last_phase, SPEED)
+                    last_phase = loop_start
+                    pos = gait_manager.tick(steps) if steps else None
                     if pos:
                         q8.move_all(pos, 0, False)
                         robot_state.note_send()
@@ -352,6 +358,8 @@ def control_loop(key_state, robot_state, q8, leg, gait_manager, gait_names, pos_
         else:
             if get_movement_direction(keys, axes) is not None:
                 movement = True
+                phase_accum = 0.0          # 정지 구간의 경과 시간은 위상에 반영하지 않는다
+                last_phase = time.monotonic()
             elif is_action_pressed('reset', keys, buttons):
                 log.info("Gait Reset")
                 move_xy(pos_ref[0], pos_ref[1], 500)
