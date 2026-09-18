@@ -110,6 +110,22 @@
   }
   #btnJump:hover { border-color: var(--accent); color: var(--accent); }
 
+  /* 터치 조작 — 폰 화면만으로 조종(게임패드/키보드 없이). */
+  .pad { display: flex; gap: 12px; align-items: center; }
+  .pad .buttons { flex: 1; }
+  #stick {
+    position: relative; flex: none; width: 150px; height: 150px;
+    border-radius: 50%; background: var(--surface-2); border: 1px solid var(--line);
+    touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  #knob {
+    position: absolute; left: 50%; top: 50%;
+    width: 58px; height: 58px; border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: #2b313b; border: 1px solid #3a424e;
+  }
+  #stick.on #knob { background: rgba(90, 200, 250, 0.22); border-color: var(--accent); }
+
   footer {
     padding: 12px 18px; border-top: 1px solid var(--line);
     background: var(--surface); color: var(--muted); font-size: 12.5px;
@@ -168,6 +184,19 @@
         <button id="btnJump" class="full">Jump</button>
       </div>
     </div>
+
+    <div class="group">
+      <h2>터치 조작</h2>
+      <div class="pad">
+        <div id="stick"><div id="knob"></div></div>
+        <div class="buttons">
+          <button data-key="h">인사</button>
+          <button data-key="p">손</button>
+          <button data-key="g">보행전환</button>
+          <button data-key="r">리셋</button>
+        </div>
+      </div>
+    </div>
   </div>
 </main>
 
@@ -177,6 +206,7 @@
     <div><b>동작</b><kbd>H</kbd>인사<kbd>P</kbd>손<kbd>G</kbd>보행전환<kbd>J</kbd>점프</div>
     <div><b>기타</b><kbd>R</kbd>리셋<kbd>C</kbd>범위표시</div>
     <div><b>패드</b>왼쪽 스틱 12방향 · Y=인사 A=보행전환 X=점프 LB=리셋</div>
+    <div><b>터치</b>화면 조이스틱 12방향 · 버튼으로 인사/손/보행전환/리셋/점프</div>
   </div>
   <div class="note">
     키 입력은 페이지에 포커스가 있어야 인식됩니다. 게임패드는 아무 버튼이나 한 번 눌러야 브라우저가 연결을 인식합니다.
@@ -243,9 +273,61 @@ function post(path, body) {
   }).catch(() => {});
 }
 
+// 터치 조이스틱: 키가 아니라 축값으로 보낸다 — 서버의 12방향 아날로그 해석
+// (web_operate.get_joystick_direction)을 그대로 재사용하려고. 규약대로 y 음수=전진.
+const stick = document.getElementById('stick');
+const knob = document.getElementById('knob');
+const STICK_R = 60;   // 최대 변위(px). 이 거리에서 |축|=1
+let touchAxes = null;
+let stickId = null;
+
+function setKnob(dx, dy) {
+  knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+}
+function moveStick(e) {
+  const r = stick.getBoundingClientRect();
+  let dx = e.clientX - (r.left + r.width / 2);
+  let dy = e.clientY - (r.top + r.height / 2);
+  const d = Math.hypot(dx, dy);
+  if (d > STICK_R) { dx *= STICK_R / d; dy *= STICK_R / d; }
+  setKnob(dx, dy);
+  touchAxes = { x: dx / STICK_R, y: dy / STICK_R };
+  sendKeys();
+}
+function releaseStick() {
+  if (stickId === null) return;
+  stickId = null;
+  touchAxes = null;
+  stick.classList.remove('on');
+  setKnob(0, 0);
+  sendKeys();
+}
+stick.addEventListener('pointerdown', e => {
+  stickId = e.pointerId;
+  stick.setPointerCapture(e.pointerId);
+  stick.classList.add('on');
+  moveStick(e);
+});
+stick.addEventListener('pointermove', e => { if (e.pointerId === stickId) moveStick(e); });
+stick.addEventListener('pointerup', releaseStick);
+stick.addEventListener('pointercancel', releaseStick);
+// 화면 잠금/앱 전환으로 pointerup이 안 올 수 있다 — 안 놓으면 로봇이 계속 걷는다.
+document.addEventListener('visibilitychange', () => { if (document.hidden) releaseStick(); });
+
+// 탭은 너무 짧아 200Hz 제어 루프가 놓칠 수 있다 — 300ms 눌린 상태를 유지한다.
+function tapKey(k) {
+  pressed.add(k);
+  sendKeys();
+  setTimeout(() => { if (pressed.delete(k)) sendKeys(); }, 300);
+}
+document.querySelectorAll('button[data-key]').forEach(b => {
+  b.onclick = () => tapKey(b.dataset.key);
+});
+
 function sendKeys() {
   const body = { keys: Array.from(pressed) };
-  if (gpAxes) body.axes = gpAxes;          // 게임패드 미연결 시 생략(하위호환)
+  const axes = gpAxes || touchAxes;        // 입력 없으면 생략(하위호환)
+  if (axes) body.axes = axes;
   if (gpButtons.length) body.buttons = gpButtons;
   post('/keys', body);
 }
@@ -257,7 +339,7 @@ window.addEventListener('keyup', e => {
   const k = e.key.toLowerCase();
   if (pressed.delete(k)) sendKeys();
 });
-window.addEventListener('blur', () => { pressed.clear(); sendKeys(); });
+window.addEventListener('blur', () => { releaseStick(); pressed.clear(); sendKeys(); });
 setInterval(sendKeys, 200);
 
 // 상태 SSE
