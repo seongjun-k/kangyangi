@@ -295,7 +295,9 @@ function moveStick(e) {
   if (d > STICK_R) { dx *= STICK_R / d; dy *= STICK_R / d; }
   setKnob(dx, dy);
   touchAxes = { x: dx / STICK_R, y: dy / STICK_R };
-  sendKeys();
+  // pointermove는 화면 주사율만큼(90~120Hz) 들어온다. 매번 POST하면 요청당 스레드를
+  // 띄우는 서버와 200Hz 제어 루프가 GIL을 두고 싸워 보행이 끊긴다 — 20Hz로 제한.
+  if (performance.now() - lastSend >= 50) sendKeys();
 }
 function releaseStick() {
   if (stickId === null) return;
@@ -327,7 +329,9 @@ document.querySelectorAll('button[data-key]').forEach(b => {
   b.onclick = () => tapKey(b.dataset.key);
 });
 
+let lastSend = 0;
 function sendKeys() {
+  lastSend = performance.now();
   const body = { keys: Array.from(pressed) };
   const axes = gpAxes || touchAxes;        // 입력 없으면 생략(하위호환)
   if (axes) body.axes = axes;
